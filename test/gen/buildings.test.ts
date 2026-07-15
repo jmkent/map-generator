@@ -21,7 +21,7 @@ function roadCorridors(net: RoadNetwork): Polygon[] {
 describe("building invariants", () => {
     for (const seed of SEEDS) {
         it(`produces valid houses for seed "${seed}"`, () => {
-            const model: MapModel = generateVillage(seed);
+            const model: MapModel = generateVillage(seed, { settlementProfile: "haufendorf" });
             const buildings = model.buildings;
 
             expect(buildings.length).toBeGreaterThan(5);
@@ -51,7 +51,7 @@ describe("building invariants", () => {
     }
 
     it("clusters toward the center (density falloff)", () => {
-        const model = generateVillage("village");
+        const model = generateVillage("village", { settlementProfile: "haufendorf" });
         const center = centroid(model.boundary);
 
         const meanBuilding =

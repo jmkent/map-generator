@@ -32,11 +32,14 @@ export function renderModelSvg(model: MapModel, opts: SvgOptions = {}): string {
         const a = posById.get(e.a);
         const b = posById.get(e.b);
         if (!a || !b) return "";
-        const color = e.kind === "primary" ? "#d9c48a" : e.kind === "secondary" ? "#c9b47a" : "#b9a878";
+        const color = e.kind === "primary" ? "#d9c48a" : e.kind === "secondary" ? "#c9b47a" : e.kind === "lane" ? "#b9a878" : "#718096";
         return `  <line x1="${tx(a.x)}" y1="${ty(a.y)}" x2="${tx(b.x)}" y2="${ty(b.y)}" stroke="${color}" stroke-width="${round(e.width)}" stroke-linecap="round"/>`;
     });
 
     const ring = (poly: { x: number; y: number }[]) => poly.map((p) => `${tx(p.x)},${ty(p.y)}`).join(" ");
+    const civicPolys = model.civicSpaces.map(
+        (space) => `  <polygon points="${ring(space.polygon)}" fill="#5f9f61" stroke="#dce9b0" stroke-width="0.5"/>`,
+    );
     const parcelPolys = model.parcels.map(
         (p) => `  <polygon points="${ring(p.polygon)}" fill="none" stroke="#4a5568" stroke-width="0.4"/>`,
     );
@@ -48,6 +51,7 @@ export function renderModelSvg(model: MapModel, opts: SvgOptions = {}): string {
         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`,
         `  <rect width="${w}" height="${h}" fill="#0c1016"/>`,
         `  <polygon points="${points}" fill="#276f2b" stroke="#e8ecf1" stroke-width="1" stroke-linejoin="round"/>`,
+        ...civicPolys,
         ...roadLines,
         ...parcelPolys,
         ...buildingPolys,

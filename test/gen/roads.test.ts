@@ -48,7 +48,7 @@ function chainLength(points: Pt[]): number {
 describe("road network invariants", () => {
     for (const seed of SEEDS) {
         it(`produces a connected planar network for seed "${seed}"`, () => {
-            const model: MapModel = generateVillage(seed);
+            const model: MapModel = generateVillage(seed, { settlementProfile: "haufendorf" });
             const net = model.roads;
             const pos = new Map(net.nodes.map((n) => [n.id, n.pos]));
 
@@ -109,12 +109,12 @@ describe("road network invariants", () => {
 });
 
 it('can close local blocks with secondary connectors for seed "waxony"', () => {
-    const net = generateVillage("waxony").roads;
+    const net = generateVillage("waxony", { settlementProfile: "haufendorf" }).roads;
     expect(net.edges.length - net.nodes.length + componentCount(net)).toBeGreaterThanOrEqual(1);
 });
 
 it('keeps secondary roads connected at both ends for seed "tarry"', () => {
-    const net = generateVillage("tarry").roads;
+    const net = generateVillage("tarry", { settlementProfile: "haufendorf" }).roads;
     const degree = degrees(net);
     const secondaryEdges = net.edges.filter((edge) => edge.kind === "secondary");
     expect(secondaryEdges.length).toBeGreaterThan(0);

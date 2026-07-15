@@ -9,7 +9,7 @@
 // existing corridors. The soup of segments is handed to `planarize`, which splits
 // every crossing into a shared node.
 
-import type { Polygon, RoadClass, RoadNetwork, Vec2 } from "../types";
+import type { Polygon, RoadClass, RoadNetwork, SettlementLayout, Vec2 } from "../types";
 import type { Rng } from "../rng";
 import { centroid, contains, distanceToBoundary, inset, intersectRayPolygon } from "../geometry/polygon";
 import { catmullRom } from "../geometry/catmullRom";
@@ -35,6 +35,7 @@ export interface RoadParams {
     laneWidth: number;
     /** Typical lot frontage, used to keep branch roads useful and well spaced. */
     frontage: number;
+    layout: SettlementLayout;
 }
 
 const MIN_EDGE_LEN = 1e-3;
@@ -67,6 +68,7 @@ interface SecondaryConnector {
 }
 
 export function generateRoads(rng: Rng, params: RoadParams): RoadNetwork {
+    if (params.layout.profile !== "haufendorf") return generateProfileRoads(rng, params);
     const { boundary, radius, primaryTarget, samples, jitter, inset: margin } = params;
     const center = centroid(boundary);
     const safeArea = inset(boundary, margin);
@@ -157,6 +159,93 @@ export function generateRoads(rng: Rng, params: RoadParams): RoadNetwork {
     }
 
     return planarize(segments);
+}
+
+/** Generate the non-clustered settlement profiles from compact topology templates. */
+function generateProfileRoads(rng: Rng, params: RoadParams): RoadNetwork {
+    const safeArea = inset(params.boundary, params.inset);
+    const spacing = Math.max(params.frontage * 2.5, params.radius * 0.18);
+    const context: RoadGenerationContext = {
+        rng,
+        safeArea,
+        radius: params.radius,
+        frontage: params.frontage,
+        junctionSpacing: spacing,
+        jitter: params.jitter,
+        samples: params.samples,
+    };
+    const segments: SegmentInput[] = [];
+    const addRoute = (points: Vec2[], kind: RoadClass, width: number): void => {
+        if (!points.every((point) => allowedPoint(params, safeArea, point))) return;
+        for (let i = 1; i < points.length; i++) {
+            if (dist(points[i - 1], points[i]) >= MIN_EDGE_LEN) segments.push({ a: points[i - 1], b: points[i], kind, width });
+        }
+    };
+    const axis = params.layout.axis;
+    const normal = perp(axis);
+    const anchor = params.layout.anchor;
+    const profile = params.layout.profile;
+
+    if (profile === "estate") {
+        // An estate has one legible access lane rather than an internal street
+        // network. It remains frontage-capable because the service yard still
+        // needs a small number of occupied lots.
+        addRoute(throughRoad(context, anchor, axis), "lane", params.laneWidth);
+        return planarize(segments);
+    }
+
+    if (profile === "reihendorf" || profile === "tenement") {
+        addRoute(throughRoad(context, anchor, axis), "primary", params.primaryWidth);
+        return planarize(segments);
+    }
+
+    if (profile === "weiler") {
+        const trunk = throughRoad(context, anchor, axis);
+        addRoute(trunk, "primary", params.primaryWidth);
+        const offset = scale(normal, params.radius * 0.22);
+        const side = throughRoad(context, add(anchor, offset), axis);
+        addRoute(side, "track", params.laneWidth * 0.7);
+        addConnector(params, safeArea, segments, pointAtFraction(trunk, 0.72), pointAtFraction(side, 0.72), "track", params.laneWidth * 0.7);
+        return planarize(segments);
+    }
+
+    const green = params.layout.civicSpaces[0];
+    const greenRadius = green ? Math.max(...green.polygon.map((point) => dist(point, anchor))) : params.radius * 0.14;
+    const flankOffset = greenRadius + params.frontage * 0.8;
+    const left = throughRoad(context, add(anchor, scale(normal, flankOffset)), axis);
+    const right = throughRoad(context, add(anchor, scale(normal, -flankOffset)), axis);
+    // Rundling spokes are narrow, but support the clustered holdings facing the
+    // common. The closing paths remain tracks and therefore add no frontage.
+    addRoute(left, profile === "rundling" ? "lane" : "primary", profile === "rundling" ? params.laneWidth : params.primaryWidth);
+    addRoute(right, profile === "rundling" ? "lane" : "primary", profile === "rundling" ? params.laneWidth : params.primaryWidth);
+    const connectorKind: RoadClass = profile === "rundling" ? "track" : "secondary";
+    const connectorWidth = profile === "rundling" ? params.laneWidth * 0.7 : params.secondaryWidth;
+    // End connectors maintain movement without cutting through the reserved centre.
+    addConnector(params, safeArea, segments, pointAtFraction(left, 0.16), pointAtFraction(right, 0.16), connectorKind, connectorWidth);
+    if (profile === "angerdorf") {
+        addConnector(params, safeArea, segments, pointAtFraction(left, 0.84), pointAtFraction(right, 0.84), connectorKind, connectorWidth);
+    }
+    return planarize(segments);
+}
+
+function addConnector(
+    params: RoadParams,
+    safeArea: Polygon,
+    segments: SegmentInput[],
+    a: Vec2,
+    b: Vec2,
+    kind: RoadClass,
+    width: number,
+): void {
+    const points = dedupe(catmullRom([a, scale(add(a, b), 0.5), b], params.samples));
+    if (!points.every((point) => allowedPoint(params, safeArea, point))) return;
+    for (let i = 1; i < points.length; i++) {
+        if (dist(points[i - 1], points[i]) >= MIN_EDGE_LEN) segments.push({ a: points[i - 1], b: points[i], kind, width });
+    }
+}
+
+function allowedPoint(params: RoadParams, safeArea: Polygon, point: Vec2): boolean {
+    return insideOrOn(safeArea, point) && !params.layout.civicSpaces.some((space) => contains(space.polygon, point));
 }
 
 /** Create a subtly bent through-road while keeping its endpoints on the inset boundary. */

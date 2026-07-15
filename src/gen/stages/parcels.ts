@@ -6,7 +6,7 @@
 // clear of every road corridor and of already-accepted lots — and thinned by a
 // center-weighted density falloff, which produces a denser core (the "clumps").
 
-import type { Parcel, Polygon, RoadNetwork, Vec2 } from "../types";
+import { ROAD_CLASS_POLICIES, type Parcel, type Polygon, type RoadNetwork, type SettlementLayout, type Vec2 } from "../types";
 import type { Rng } from "../rng";
 import { centroid, contains, convexOverlap, ensureCCW } from "../geometry/polygon";
 import { roadChains } from "../geometry/graph";
@@ -21,6 +21,7 @@ export interface ParcelParams {
     lotSetback: number;
     lotWidthJitter: number;
     density: number;
+    layout: SettlementLayout;
 }
 
 interface Corridor {
@@ -28,7 +29,7 @@ interface Corridor {
 }
 
 export function generateParcels(rng: Rng, params: ParcelParams): Parcel[] {
-    const { boundary, roads, radius, lotWidth, lotDepth, lotSetback, lotWidthJitter, density } = params;
+    const { boundary, roads, radius, lotWidth, lotDepth, lotSetback, lotWidthJitter, density, layout } = params;
     const center = centroid(boundary);
     const posById = new Map(roads.nodes.map((n) => [n.id, n.pos]));
 
@@ -39,8 +40,10 @@ export function generateParcels(rng: Rng, params: ParcelParams): Parcel[] {
     const accepted: Parcel[] = [];
 
     for (const line of roadChains(roads)) {
+        if (!ROAD_CLASS_POLICIES[line.kind].supportsFrontage) continue;
         const frontOffset = line.width / 2 + lotSetback;
-        const backOffset = frontOffset + lotDepth;
+        const depthMultiplier = layout.profile === "tenement" ? 2 : 1;
+        const backOffset = frontOffset + lotDepth * depthMultiplier;
 
         for (const seg of subdivideByLength(line.points, lotWidth, lotWidthJitter, rng)) {
             const dir = normalize(sub(seg.b, seg.a));
@@ -57,6 +60,9 @@ export function generateParcels(rng: Rng, params: ParcelParams): Parcel[] {
                 ]);
 
                 if (!lot.every((c) => contains(boundary, c))) continue;
+                // Greens are convex just like lots, so SAT catches both the
+                // obvious corner case and a lot spanning across a common.
+                if (layout.civicSpaces.some((space) => convexOverlap(lot, space.polygon, 0))) continue;
                 if (corridors.some((c) => convexOverlap(lot, c.rect, 0.05))) continue;
                 if (accepted.some((p) => convexOverlap(lot, p.polygon, 0.05))) continue;
 
@@ -68,7 +74,7 @@ export function generateParcels(rng: Rng, params: ParcelParams): Parcel[] {
                 const p = clamp(1.05 - dNorm * dNorm, 0.15, 1) * density * hierarchyDensity;
                 if (rng.next() >= p) continue;
 
-                accepted.push({ polygon: lot });
+                accepted.push({ polygon: lot, frontage: [seg.a, seg.b], roadKind: line.kind, buildablePolygon: lot });
             }
         }
     }

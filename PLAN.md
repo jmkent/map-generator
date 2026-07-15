@@ -142,8 +142,8 @@ Babylon into the module graph.
 
 Each milestone is a shippable vertical slice. The village "clicks" visually at **M3**.
 
-> **Status:** Milestones marked `[x]` are shipped. The remaining work starts with **M5**,
-> which adds village-layout strategies and civic space; **M6** adds off-map entrances;
+> **Status:** Milestones marked `[x]` are shipped. The remaining work starts with **M6**,
+> which adds off-map entrances;
 > **M7–M8** add *structural water* (rivers, then ponds/lakes/coast) which constrains the
 > layout; **M9** paints *decorative terrain* (fields/woodlands) on what is left; **M10** is
 > interactivity and polish. Structural layout and water precede decorative terrain
@@ -248,7 +248,7 @@ lining more frontage.
 - **Golden:** SVG snapshots.
 - **Mesher (headless):** road `GeometryData` counts/bounds; per-class widths honored.
 
-### [ ] M5 — Settlement morphology & civic space
+### [x] M5 — Settlement morphology & civic space
 
 The existing generator makes one settlement morphology: a relatively dense, irregular,
 connected village. Real rural settlements are not a flat list of interchangeable road graphs.
@@ -297,7 +297,7 @@ without duplicating the underlying geometry strategy.
   `SettlementNucleation = compact | dispersed`, and
   `SettlementGeometry = clustered | linear | frontage | common | radial`.
   A profile may therefore express a linear hamlet, a dispersed farmstead settlement, or a common
-  village without pretending that scale and geometry are the same enum. `LayoutPlan` owns the
+  village without pretending that scale and geometry are the same enum. `SettlementLayout` owns the
   resolved axes, settlement anchor and extent, preferred axis or entrance, road-growth budget,
   frontage profile, parcel projection rule, and reserved civic spaces.
 - Generalize `Parcel` from a CCW quad to a convex CCW polygon with explicit road-frontage
@@ -318,7 +318,7 @@ without duplicating the underlying geometry strategy.
   and the resolved axes above.
 
 **Generation rules:**
-- In M5, resolve the profile after the boundary and materialize one `LayoutPlan` before road
+- In M5, resolve the profile after the boundary and materialize one `SettlementLayout` before road
   growth. M7 changes the physical ordering to `boundary -> profile selection -> water -> layout
   plan -> roads -> parcels`: water may alter the axis, civic-space placement, or viable profile
   parameters, but it must not change the seeded profile selection.
@@ -342,7 +342,7 @@ without duplicating the underlying geometry strategy.
   radial settlements additionally require inward-facing frontage and outward parcel projection.
 
 **Delivery sequence:**
-- **M5a - morphology foundation:** add profile selection and resolved axes, `LayoutPlan`, civic
+- **M5a - morphology foundation:** add profile selection and resolved axes, `SettlementLayout`, civic
   spaces, convex parcels with frontage/buildable metadata, building containment against generic
   buildable polygons, and `track` class policy. Migrate the existing M4 output to the
   `haufendorf` profile and keep its current golden coverage.

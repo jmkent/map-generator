@@ -22,7 +22,7 @@ describe("renderModelSvg", () => {
     // SVG diff. Regenerate intentionally with `vitest -u` after a deliberate change.
     for (const seed of ["village", "hamlet", "riverford"]) {
         it(`matches the golden render for seed "${seed}"`, async () => {
-            await expect(renderModelSvg(generateVillage(seed))).toMatchFileSnapshot(
+            await expect(renderModelSvg(generateVillage(seed, { settlementProfile: "haufendorf" }))).toMatchFileSnapshot(
                 `./__snapshots__/model-${seed}.svg`,
             );
         });

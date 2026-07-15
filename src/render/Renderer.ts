@@ -74,6 +74,19 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
     boundaryMesh.material = boundaryMat;
     addToScene(scene, boundaryMesh);
 
+    // Civic greens are reserved land: render them above the general ground and
+    // below roads so their placement is legible in the interactive view.
+    for (const [index, space] of model.civicSpaces.entries()) {
+        const civicGeo = boundaryGeometry(space.polygon, 0.03);
+        const civicMesh = createMeshFromData(engine, `civic-${index}`, civicGeo.positions, civicGeo.normals, civicGeo.indices);
+        const civicMat = createStandardMaterial();
+        civicMat.diffuseColor = [0.3, 0.58, 0.32];
+        civicMat.specularColor = [0.02, 0.02, 0.02];
+        civicMesh.material = civicMat;
+        civicMesh.pickable = false;
+        addToScene(scene, civicMesh);
+    }
+
     // Roads as flat ribbons, above the boundary patch.
     const roadGeo = roadGeometry(model.roads, 0.04);
     if (roadGeo.indices.length > 0) {

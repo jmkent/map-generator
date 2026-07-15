@@ -21,7 +21,7 @@ function roadCorridors(net: RoadNetwork): Polygon[] {
 describe("parcel invariants", () => {
     for (const seed of SEEDS) {
         it(`produces valid lots for seed "${seed}"`, () => {
-            const model: MapModel = generateVillage(seed);
+            const model: MapModel = generateVillage(seed, { settlementProfile: "haufendorf" });
             const parcels = model.parcels;
 
             expect(parcels.length).toBeGreaterThan(8);
@@ -51,7 +51,7 @@ describe("parcel invariants", () => {
     }
 
     it("covers a meaningful share of the boundary without exceeding it", () => {
-        const model = generateVillage("village");
+        const model = generateVillage("village", { settlementProfile: "haufendorf" });
         const totalLotArea = model.parcels.reduce((sum, p) => sum + polygonArea(p.polygon), 0);
         expect(totalLotArea).toBeGreaterThan(0);
         expect(totalLotArea).toBeLessThan(polygonArea(model.boundary));

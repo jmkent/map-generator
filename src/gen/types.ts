@@ -36,6 +36,29 @@ export function boundsRadius(b: Bounds): number {
 /** A closed polygon, given as an ordered ring of vertices (CCW by convention). */
 export type Polygon = Vec2[];
 
+/** Historical-inspired preset used to choose a settlement layout. */
+export type SettlementProfile = "auto" | "estate" | "weiler" | "haufendorf" | "reihendorf" | "tenement" | "angerdorf" | "rundling";
+export type ResolvedSettlementProfile = Exclude<SettlementProfile, "auto">;
+export type SettlementScale = "estate" | "hamlet" | "village";
+export type SettlementNucleation = "compact" | "dispersed";
+export type SettlementGeometry = "clustered" | "linear" | "frontage" | "common" | "radial";
+
+export interface CivicSpace {
+    kind: "green";
+    polygon: Polygon;
+}
+
+/** Resolved, serializable layout decision shared by roads and parcels. */
+export interface SettlementLayout {
+    profile: ResolvedSettlementProfile;
+    scale: SettlementScale;
+    nucleation: SettlementNucleation;
+    geometry: SettlementGeometry;
+    anchor: Vec2;
+    axis: Vec2;
+    civicSpaces: CivicSpace[];
+}
+
 /** Tunable inputs to the village generator. */
 export interface VillageParams {
     /** Mean radius of the village boundary, world units. */
@@ -44,6 +67,8 @@ export interface VillageParams {
     boundaryPoints: number;
     /** Radial variation of the boundary, 0 (circle) .. ~0.5 (very lumpy). */
     boundaryIrregularity: number;
+    /** Historical-inspired settlement preset, or `auto` for a seed-selected profile. */
+    settlementProfile: SettlementProfile;
     /** Target number of primary through-roads; the final count varies by seed. */
     primaryRoadTarget: number;
     /** Polyline samples per Catmull–Rom segment of a generated road. */
@@ -81,8 +106,14 @@ export interface VillageParams {
 
 /** A buildable lot fronting a road. */
 export interface Parcel {
-    /** Lot outline (CCW quad). */
+    /** Convex, CCW lot outline. */
     polygon: Polygon;
+    /** The road-facing edge that provides access and building orientation. */
+    frontage: [Vec2, Vec2];
+    /** Road class serving the frontage. */
+    roadKind: RoadClass;
+    /** Convex part of the lot where a building may be placed. */
+    buildablePolygon: Polygon;
 }
 
 /** A house: a road-oriented box footprint plus a height. Stored structurally so
@@ -102,8 +133,19 @@ export interface Building {
     height: number;
 }
 
-/** Road class, widest to narrowest. `approach` (off-map entrances) arrives in M5. */
-export type RoadClass = "primary" | "secondary" | "lane";
+/** Road class, widest to narrowest. `approach` (off-map entrances) arrives in M6. */
+export type RoadClass = "primary" | "secondary" | "lane" | "track";
+
+export interface RoadClassPolicy {
+    supportsFrontage: boolean;
+}
+
+export const ROAD_CLASS_POLICIES: Record<RoadClass, RoadClassPolicy> = {
+    primary: { supportsFrontage: true },
+    secondary: { supportsFrontage: true },
+    lane: { supportsFrontage: true },
+    track: { supportsFrontage: false },
+};
 
 /** A junction/point in the road graph. */
 export interface RoadNode {
@@ -137,6 +179,8 @@ export interface MapModel {
     params: VillageParams;
     bounds: Bounds;
     boundary: Polygon;
+    settlement: SettlementLayout;
+    civicSpaces: CivicSpace[];
     roads: RoadNetwork;
     parcels: Parcel[];
     buildings: Building[];

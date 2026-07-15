@@ -1,6 +1,6 @@
 # Architecture
 
-This document explains how the village generator currently works through M4.
+This document explains how the village generator currently works through M5.
 It starts with the problem each phase solves, then names the techniques used in
 the code. Read `PLAN.md` for the roadmap; use this document to understand the
 implemented system and the rules that shape its output.
@@ -17,7 +17,7 @@ feel inhabited.
 seed + parameters
         |
         v
-named RNG streams -> boundary -> roads -> parcels -> buildings -> MapModel
+named RNG streams -> boundary -> settlement layout -> roads -> parcels -> buildings -> MapModel
                                                                |         |
                                                                v         v
                                                      Babylon renderer   SVG debug/goldens
@@ -43,7 +43,7 @@ Procedural generation is only useful when a reported seed can be reproduced.
 All variation therefore comes from a seeded pseudo-random number generator
 (PRNG), rather than `Math.random` or the current time. The project uses
 [named random streams](https://github.com/bryc/code/blob/master/jshash/PRNGs.md):
-boundary, roads, parcels, and buildings each receive their own stream derived
+boundary, layout, roads, parcels, and buildings each receive their own stream derived
 from the main seed.
 
 In practical terms, changing how many random choices road generation makes must
@@ -75,10 +75,11 @@ short for houses or whether a connection is too close to an existing junction.
 `src/gen/pipeline.ts` owns the defaults and runs the stages in order:
 
 1. Make the settlement outline.
-2. Make roads within that outline.
-3. Make roadside lots from the roads.
-4. Put buildings into viable lots.
-5. Derive model bounds for framing.
+2. Resolve the settlement form and reserve civic land.
+3. Make roads within that outline and around any reserved land.
+4. Make roadside lots from the roads.
+5. Put buildings into viable lots.
+6. Derive model bounds for framing.
 
 The normal village radius is 125 units. This is intentionally large enough to
 hold several primary routes and central blocks while leaving enough frontage for
@@ -104,7 +105,29 @@ area. This leaves room between the settlement edge and road ribbons, curve
 bends, lots, and buildings. The original boundary remains the final hard limit
 for later stages.
 
-### 3. Make a road network that supports movement and homes
+### 3. Choose a settlement form before growing roads
+
+A village is not always a loose grid. `src/gen/stages/layout.ts` resolves a
+named `SettlementProfile` from either the requested parameter or the dedicated
+`layout` random stream. It stores the result as `SettlementLayout` on
+`MapModel`, including scale, nucleation, preferred axis, anchor, and any civic
+spaces. This gives roads, lots, renderers, and tests one shared decision rather
+than letting each stage independently guess what kind of settlement it is.
+
+The shipped profiles are `estate`, `weiler`, `haufendorf`, `reihendorf`,
+`tenement`, `angerdorf`, and `rundling`. They are practical spatial rules, not
+claims to reconstruct a particular historical settlement: estate uses one
+access route, weiler stays sparse, haufendorf retains the irregular clustered
+network, reihendorf and tenement use an axis and frontage, and angerdorf and
+rundling reserve a central green. `auto` is deterministic for a given seed.
+
+The green is a `CivicSpace` polygon. It is reserved before roads are grown;
+roads, parcels, and buildings treat it as exclusion land, and both renderers
+draw it as open space. This is the same broad idea as a
+[land-use reservation](https://en.wikipedia.org/wiki/Land-use_planning): decide
+which area has a non-building purpose before filling the remaining area.
+
+### 4. Make a road network that supports movement and homes
 
 Roads are not independent random lines. They should let someone travel through
 the village, offer enough continuous frontage for lots, and create a denser
@@ -133,6 +156,7 @@ a width for rendering and a density preference for parcel placement.
 | `primary` | 3.5 | Main routes that carry movement across the village: the trunk and cross streets. | 1.00 |
 | `secondary` | 2.5 | Two-ended local connectors that make central blocks and alternative paths. | 0.82 |
 | `lane` | 1.8 | Short frontage branches where a dead end can still be useful. | 0.65 |
+| `track` | 1.26 | Sparse access or service path. It contributes to movement but never creates parcel frontage. | n/a |
 
 Planarization can split one visible road into several graph edges at junctions.
 `roadChains()` rebuilds maximal same-class paths for parcel generation, so lots
@@ -141,8 +165,9 @@ node.
 
 #### Build the network in a useful order
 
-The population order reserves the valuable central space for connected movement
-before it considers optional frontage branches.
+For the clustered `haufendorf` profile, the population order reserves the
+valuable central space for connected movement before it considers optional
+frontage branches.
 
 1. **Give the village a spine.** A primary trunk crosses the safe area from one
    side to the other through a slightly jittered center. It gives the settlement
@@ -219,7 +244,14 @@ all generated outputs, rather than a single expected layout. The SVG snapshots
 are the complementary visual check; they make intentional changes to a seed's
 character easy to review.
 
-### 4. Turn useful street frontage into parcels
+Form-specific routes are created as compact topology templates, then passed to
+the same planarization step. A linear or tenement settlement therefore has a
+single dominant spine rather than an arbitrary grid; common settlements use
+flanking routes and connectors that skirt the green; sparse forms use only the
+limited access they need. This keeps the shared graph and containment rules
+while allowing road growth to follow the selected morphology.
+
+### 5. Turn useful street frontage into parcels
 
 Houses need a reason to be where they are. `src/gen/stages/parcels.ts` uses
 continuous road chains as the source of frontage, then attempts lots on both
@@ -227,7 +259,7 @@ sides of each chain. Lot widths vary around a configured value so that rows do
 not become mechanically uniform.
 
 Each candidate is kept only when it remains inside the boundary, clears every
-road corridor, and does not overlap a parcel already accepted. This is a simple
+road corridor and reserved civic space, and does not overlap a parcel already accepted. This is a simple
 greedy packing process backed by polygon containment and overlap checks. The
 same broad family of convex-overlap test used here is the
 [separating axis theorem](https://dyn4j.org/2010/01/sat/), which is also useful
@@ -239,7 +271,12 @@ least so. A center falloff adds a second preference for denser development near
 the middle. In plain terms, more streets are valuable only when they can provide
 real, non-overlapping places for homes.
 
-### 5. Put buildings in the lots
+Lots carry their road-facing segment, serving road class, and a convex
+`buildablePolygon`. That makes the contract work for future wedges and irregular
+lots as well as today’s frontage strips. `track` chains are skipped entirely,
+so service paths cannot accidentally create implausible roadside housing.
+
+### 6. Put buildings in the lots
 
 `src/gen/stages/buildings.ts` makes each house answer to a parcel rather than
 placing buildings independently across the map. It creates a seeded footprint
@@ -251,11 +288,11 @@ This parcel-led approach makes the visible settlement follow its streets: denser
 where useful frontage is available and more open where the road graph leaves
 space alone.
 
-### 6. Draw and inspect the completed model
+### 7. Draw and inspect the completed model
 
 The renderer's job is presentation, not generation. Bounds derived from the
 boundary frame the fixed-angle camera; the Babylon renderer converts model data
-into ground, road, and house meshes. Babylon's
+into ground, civic-green, road, and house meshes. Babylon's
 [mesh documentation](https://doc.babylonjs.com/features/featuresDeepDive/mesh/creation/)
 is useful background for that final adapter layer.
 
