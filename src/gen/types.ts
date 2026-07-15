@@ -75,6 +75,8 @@ export interface VillageParams {
     approachRoadMin: number;
     /** Maximum number of primary roads that continue to the map edge. */
     approachRoadMax: number;
+    /** Width of the generated river channel, in world units. */
+    riverWidth: number;
     /** Target number of primary through-roads; the final count varies by seed. */
     primaryRoadTarget: number;
     /** Polyline samples per Catmull–Rom segment of a generated road. */
@@ -158,6 +160,8 @@ export const ROAD_CLASS_POLICIES: Record<RoadClass, RoadClassPolicy> = {
 export interface RoadNode {
     id: number;
     pos: Vec2;
+    /** A road-water crossing installed by the structural water stage. */
+    crossing?: "bridge" | "ford";
 }
 
 /** A straight road segment between two nodes, with a class and render width. */
@@ -166,6 +170,8 @@ export interface RoadEdge {
     b: number;
     kind: RoadClass;
     width: number;
+    /** Marks the road span incident to a structural water crossing. */
+    crossing?: "bridge" | "ford";
 }
 
 /** Road network as a planar graph: nodes (junctions/endpoints) joined by straight
@@ -175,6 +181,15 @@ export interface RoadNetwork {
     nodes: RoadNode[];
     edges: RoadEdge[];
 }
+
+/** A flowing water channel that structurally constrains the settlement. */
+export interface River {
+    kind: "river";
+    path: Vec2[];
+    width: number;
+}
+
+export type WaterBody = River;
 
 /**
  * The generated village. A plain, JSON-serializable value (no Babylon, no
@@ -191,6 +206,7 @@ export interface MapModel {
     boundary: Polygon;
     settlement: SettlementLayout;
     civicSpaces: CivicSpace[];
+    water: WaterBody[];
     roads: RoadNetwork;
     parcels: Parcel[];
     buildings: Building[];

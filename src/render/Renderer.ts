@@ -27,6 +27,7 @@ import { createStageCamera, applyStageFraming } from "./camera";
 import { boundaryGeometry } from "./meshers/boundaryMesher";
 import { roadGeometry } from "./meshers/roadMesher";
 import { buildingInstances } from "./meshers/buildingMesher";
+import { waterGeometry } from "./meshers/waterMesher";
 
 export interface Renderer {
     engine: EngineContext;
@@ -85,6 +86,18 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
         civicMesh.material = civicMat;
         civicMesh.pickable = false;
         addToScene(scene, civicMesh);
+    }
+
+    // Water lies above ground but below roads so river crossings remain visible.
+    const waterGeo = waterGeometry(model.water, 0.035);
+    if (waterGeo.indices.length > 0) {
+        const waterMesh = createMeshFromData(engine, "water", waterGeo.positions, waterGeo.normals, waterGeo.indices);
+        const waterMat = createStandardMaterial();
+        waterMat.diffuseColor = [0.12, 0.42, 0.68];
+        waterMat.specularColor = [0.15, 0.2, 0.24];
+        waterMesh.material = waterMat;
+        waterMesh.pickable = false;
+        addToScene(scene, waterMesh);
     }
 
     // Roads as flat ribbons, above the boundary patch.

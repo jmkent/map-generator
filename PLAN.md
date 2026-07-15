@@ -142,8 +142,8 @@ Babylon into the module graph.
 
 Each milestone is a shippable vertical slice. The village "clicks" visually at **M3**.
 
-> **Status:** Milestones marked `[x]` are shipped. The remaining work starts with **M7**,
-> which adds structural rivers;
+> **Status:** Milestones marked `[x]` are shipped. The remaining work starts with **M8**,
+> which adds structural ponds, lakes, and coastline;
 > **M7–M8** add *structural water* (rivers, then ponds/lakes/coast) which constrains the
 > layout; **M9** paints *decorative terrain* (fields/woodlands) on what is left; **M10** is
 > interactivity and polish. Structural layout and water precede decorative terrain
@@ -412,7 +412,7 @@ countryside margin around the village.
 - **Framing:** camera frames `mapBounds` (contains village boundary + margin).
 - **Determinism + golden.**
 
-### [ ] M7 — Rivers (flowing structural water)
+### [x] M7 — Rivers (flowing structural water)
 A river behaves *almost like a road* — a meandering water-spine — but it's water, so it
 constrains the settlement rather than serving it.
 

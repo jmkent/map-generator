@@ -9,6 +9,7 @@ import { generateParcels } from "./stages/parcels";
 import { generateBuildings } from "./stages/buildings";
 import { generateLayout } from "./stages/layout";
 import { generateApproaches } from "./stages/approaches";
+import { generateRiver, integrateRiverCrossings } from "./stages/water";
 import { bounds as polygonBounds, expandBounds } from "./geometry/polygon";
 
 export const DEFAULT_PARAMS: VillageParams = {
@@ -19,6 +20,7 @@ export const DEFAULT_PARAMS: VillageParams = {
     countrysideMargin: 0.32,
     approachRoadMin: 2,
     approachRoadMax: 4,
+    riverWidth: 9,
     primaryRoadTarget: 3,
     roadSamples: 14,
     roadJitter: 0.08,
@@ -48,13 +50,14 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         irregularity: p.boundaryIrregularity,
     });
 
+    const bounds = polygonBounds(boundary);
+    const mapBounds = expandBounds(bounds, p.radius * p.countrysideMargin);
+    const water = [generateRiver(rng.stream("water"), { mapBounds, radius: p.radius, width: p.riverWidth })];
     const settlement = generateLayout(rng.stream("layout"), {
         boundary,
         radius: p.radius,
         profile: p.settlementProfile,
     });
-    const bounds = polygonBounds(boundary);
-    const mapBounds = expandBounds(bounds, p.radius * p.countrysideMargin);
 
     const internalRoads = generateRoads(rng.stream("roads"), {
         boundary,
@@ -71,7 +74,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         frontage: p.lotWidth,
         layout: settlement,
     });
-    const roads = generateApproaches(rng.stream("approaches"), {
+    const approachedRoads = generateApproaches(rng.stream("approaches"), {
         boundary,
         mapBounds,
         roads: internalRoads,
@@ -79,6 +82,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         maxCount: p.approachRoadMax,
         width: p.primaryRoadWidth,
     });
+    const roads = integrateRiverCrossings(approachedRoads, water[0]);
 
     const parcels = generateParcels(rng.stream("parcels"), {
         boundary,
@@ -90,6 +94,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         lotWidthJitter: p.lotWidthJitter,
         density: p.buildingDensity,
         layout: settlement,
+        water,
     });
 
     const buildings = generateBuildings(rng.stream("buildings"), parcels, {
@@ -106,6 +111,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         boundary,
         settlement,
         civicSpaces: settlement.civicSpaces,
+        water,
         roads,
         parcels,
         buildings,

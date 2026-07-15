@@ -6,11 +6,12 @@
 // clear of every road corridor and of already-accepted lots — and thinned by a
 // center-weighted density falloff, which produces a denser core (the "clumps").
 
-import { ROAD_CLASS_POLICIES, type Parcel, type Polygon, type RoadNetwork, type SettlementLayout, type Vec2 } from "../types";
+import { ROAD_CLASS_POLICIES, type Parcel, type Polygon, type RoadNetwork, type SettlementLayout, type Vec2, type WaterBody } from "../types";
 import type { Rng } from "../rng";
 import { centroid, contains, convexOverlap, ensureCCW } from "../geometry/polygon";
 import { roadChains } from "../geometry/graph";
 import { add, dist, normalize, perp, scale, sub } from "../geometry/vec2";
+import { distanceToRiver } from "./water";
 
 export interface ParcelParams {
     boundary: Polygon;
@@ -22,6 +23,7 @@ export interface ParcelParams {
     lotWidthJitter: number;
     density: number;
     layout: SettlementLayout;
+    water: WaterBody[];
 }
 
 interface Corridor {
@@ -29,13 +31,17 @@ interface Corridor {
 }
 
 export function generateParcels(rng: Rng, params: ParcelParams): Parcel[] {
-    const { boundary, roads, radius, lotWidth, lotDepth, lotSetback, lotWidthJitter, density, layout } = params;
+    const { boundary, roads, radius, lotWidth, lotDepth, lotSetback, lotWidthJitter, density, layout, water } = params;
     const center = centroid(boundary);
     const posById = new Map(roads.nodes.map((n) => [n.id, n.pos]));
 
     const corridors: Corridor[] = roads.edges.map((e) => ({
         rect: edgeRect(posById.get(e.a)!, posById.get(e.b)!, e.width),
     }));
+    for (const body of water) {
+        if (body.kind !== "river") continue;
+        for (let i = 1; i < body.path.length; i++) corridors.push({ rect: edgeRect(body.path[i - 1], body.path[i], body.width) });
+    }
 
     const accepted: Parcel[] = [];
 
@@ -71,7 +77,12 @@ export function generateParcels(rng: Rng, params: ParcelParams): Parcel[] {
                 // densest frontage, while lanes remain a sparse extension.
                 const dNorm = dist(centroid(lot), center) / radius;
                 const hierarchyDensity = line.kind === "primary" ? 1 : line.kind === "secondary" ? 0.82 : 0.65;
-                const p = clamp(1.05 - dNorm * dNorm, 0.15, 1) * density * hierarchyDensity;
+                const bankBias = water.reduce((best, body) => {
+                    if (body.kind !== "river") return best;
+                    const d = distanceToRiver(centroid(lot), body) - body.width / 2;
+                    return Math.max(best, clamp(1.22 - d / (radius * 0.42), 0.68, 1.22));
+                }, 1);
+                const p = clamp(1.05 - dNorm * dNorm, 0.15, 1) * density * hierarchyDensity * bankBias;
                 if (rng.next() >= p) continue;
 
                 accepted.push({ polygon: lot, frontage: [seg.a, seg.b], roadKind: line.kind, buildablePolygon: lot });

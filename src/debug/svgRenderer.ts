@@ -40,6 +40,9 @@ export function renderModelSvg(model: MapModel, opts: SvgOptions = {}): string {
     const civicPolys = model.civicSpaces.map(
         (space) => `  <polygon points="${ring(space.polygon)}" fill="#5f9f61" stroke="#dce9b0" stroke-width="0.5"/>`,
     );
+    const waterLines = model.water.flatMap((body) => body.kind === "river"
+        ? body.path.slice(1).map((point, index) => `  <line x1="${tx(body.path[index].x)}" y1="${ty(body.path[index].y)}" x2="${tx(point.x)}" y2="${ty(point.y)}" stroke="#3277ad" stroke-width="${round(body.width)}" stroke-linecap="round"/>`)
+        : []);
     const parcelPolys = model.parcels.map(
         (p) => `  <polygon points="${ring(p.polygon)}" fill="none" stroke="#4a5568" stroke-width="0.4"/>`,
     );
@@ -52,6 +55,7 @@ export function renderModelSvg(model: MapModel, opts: SvgOptions = {}): string {
         `  <rect width="${w}" height="${h}" fill="#0c1016"/>`,
         `  <polygon points="${points}" fill="#276f2b" stroke="#e8ecf1" stroke-width="1" stroke-linejoin="round"/>`,
         ...civicPolys,
+        ...waterLines,
         ...roadLines,
         ...parcelPolys,
         ...buildingPolys,

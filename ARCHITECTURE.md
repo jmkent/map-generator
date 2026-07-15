@@ -1,6 +1,6 @@
 # Architecture
 
-This document explains how the village generator currently works through M6.
+This document explains how the village generator currently works through M7.
 It starts with the problem each phase solves, then names the techniques used in
 the code. Read `PLAN.md` for the roadmap; use this document to understand the
 implemented system and the rules that shape its output.
@@ -17,7 +17,7 @@ feel inhabited.
 seed + parameters
         |
         v
-named RNG streams -> boundary -> settlement layout -> village roads -> approaches -> parcels -> buildings -> MapModel
+named RNG streams -> boundary -> river -> settlement layout -> village roads -> approaches -> parcels -> buildings -> MapModel
                                                                |         |
                                                                v         v
                                                      Babylon renderer   SVG debug/goldens
@@ -43,7 +43,7 @@ Procedural generation is only useful when a reported seed can be reproduced.
 All variation therefore comes from a seeded pseudo-random number generator
 (PRNG), rather than `Math.random` or the current time. The project uses
 [named random streams](https://github.com/bryc/code/blob/master/jshash/PRNGs.md):
-boundary, layout, roads, approaches, parcels, and buildings each receive their own stream derived
+boundary, water, layout, roads, approaches, parcels, and buildings each receive their own stream derived
 from the main seed.
 
 In practical terms, changing how many random choices road generation makes must
@@ -75,12 +75,13 @@ short for houses or whether a connection is too close to an existing junction.
 `src/gen/pipeline.ts` owns the defaults and runs the stages in order:
 
 1. Make the settlement outline.
-2. Resolve the settlement form and reserve civic land.
-3. Make roads within that outline and around any reserved land.
-4. Extend selected primary routes into the countryside.
-5. Make roadside lots from the roads.
-6. Put buildings into viable lots.
-7. Derive village and map bounds for framing.
+2. Generate structural water across the map extent.
+3. Resolve the settlement form and reserve civic land.
+4. Make roads within that outline and around any reserved land.
+5. Extend selected primary routes into the countryside.
+6. Make roadside lots from the roads.
+7. Put buildings into viable lots.
+8. Derive village and map bounds for framing.
 
 The normal village radius is 125 units. This is intentionally large enough to
 hold several primary routes and central blocks while leaving enough frontage for
@@ -106,7 +107,22 @@ area. This leaves room between the settlement edge and road ribbons, curve
 bends, lots, and buildings. The original boundary remains the final hard limit
 for later stages.
 
-### 3. Choose a settlement form before growing roads
+### 3. Generate structural water before placing the settlement
+
+M7 treats the river as a physical constraint instead of a blue mark painted on
+after the village is complete. `src/gen/stages/water.ts` uses the independent
+`water` stream to build a restrained Catmull-Rom channel from one `mapBounds`
+edge to the opposite edge. This makes the river stable when road or building
+parameters change.
+
+After roads are generated, every road-channel intersection is split into a
+shared road node marked `crossing: "bridge"`. The road mesh is drawn above the
+water mesh, making those flagged crossings legible while preserving a single
+planar movement graph. Parcel generation treats each river segment as a hard
+corridor, and a bounded bank-proximity multiplier favors viable lots near,
+rather than in, the water.
+
+### 4. Choose a settlement form before growing roads
 
 A village is not always a loose grid. `src/gen/stages/layout.ts` resolves a
 named `SettlementProfile` from either the requested parameter or the dedicated
@@ -128,7 +144,7 @@ draw it as open space. This is the same broad idea as a
 [land-use reservation](https://en.wikipedia.org/wiki/Land-use_planning): decide
 which area has a non-building purpose before filling the remaining area.
 
-### 4. Make a road network that supports movement and homes
+### 5. Make a road network that supports movement and homes
 
 Roads are not independent random lines. They should let someone travel through
 the village, offer enough continuous frontage for lots, and create a denser
@@ -252,7 +268,7 @@ flanking routes and connectors that skirt the green; sparse forms use only the
 limited access they need. This keeps the shared graph and containment rules
 while allowing road growth to follow the selected morphology.
 
-### 5. Continue selected roads into the countryside
+### 6. Continue selected roads into the countryside
 
 The village boundary is not the edge of the world. M6 derives `mapBounds` by
 expanding the tight village bounds with a countryside margin. The renderer and
@@ -267,7 +283,7 @@ class: they render at primary width, remain part of the connected planar graph,
 and never create parcel frontage. The existing graph plus selected approaches is
 planarized again so this remains a single routing model.
 
-### 6. Turn useful street frontage into parcels
+### 7. Turn useful street frontage into parcels
 
 Houses need a reason to be where they are. `src/gen/stages/parcels.ts` uses
 continuous road chains as the source of frontage, then attempts lots on both
@@ -292,7 +308,7 @@ Lots carry their road-facing segment, serving road class, and a convex
 lots as well as today’s frontage strips. `track` chains are skipped entirely,
 so service paths cannot accidentally create implausible roadside housing.
 
-### 7. Put buildings in the lots
+### 8. Put buildings in the lots
 
 `src/gen/stages/buildings.ts` makes each house answer to a parcel rather than
 placing buildings independently across the map. It creates a seeded footprint
@@ -304,7 +320,7 @@ This parcel-led approach makes the visible settlement follow its streets: denser
 where useful frontage is available and more open where the road graph leaves
 space alone.
 
-### 8. Draw and inspect the completed model
+### 9. Draw and inspect the completed model
 
 The renderer's job is presentation, not generation. Bounds derived from the
 boundary frame the fixed-angle camera; the Babylon renderer converts model data
