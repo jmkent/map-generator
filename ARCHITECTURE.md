@@ -270,15 +270,17 @@ a deliberate generation change.
 The following work is planned but intentionally does not alter the current M4
 rules yet:
 
-- **M5 approaches:** extend selected primary routes to a future countryside map
+- **M5 village types and civic space:** select a topology strategy before roads and reserve
+  shared green space where the selected layout needs it.
+- **M6 approaches:** extend selected primary routes to a future countryside map
   extent with the `approach` road class.
-- **M6-M7 structural water:** make rivers, ponds, lakes, or coast before roads,
+- **M7-M8 structural water:** make rivers, ponds, lakes, or coast before roads,
   so water can decide where a settlement may connect and build.
-- **M8 decorative terrain:** add fields and woodland after the settlement is
+- **M9 decorative terrain:** add fields and woodland after the settlement is
   fixed. [Voronoi diagrams](https://www.redblobgames.com/x/2022-voronoi-maps/)
   are planned for field-like patches, but terrain should fill remaining land,
   not choose the road graph.
-- **M9 interaction and polish:** expose controls and presentation features
+- **M10 interaction and polish:** expose controls and presentation features
   without weakening the generation/rendering boundary.
 
 When a new feature introduces a real layout constraint, it belongs at the

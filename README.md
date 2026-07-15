@@ -43,10 +43,10 @@ secondary block connectors, and lanes), and
 **parcels + houses** — burgage lots lining the streets, each holding a
 road-oriented house clustered toward a denser core. Roads and boundary render as
 flat meshes; houses as thin-instanced boxes; everything also renders to SVG for
-tests. Next up (see [PLAN.md](./PLAN.md)): off-map road entrances (M5), then
-*structural water* — rivers, ponds, lakes, and coastlines that
-constrain the layout (M6–M7) — and finally *decorative terrain* like fields and woodlands
-(M8).
+tests. Next up (see [PLAN.md](./PLAN.md)): village-layout strategies and civic space (M5),
+then off-map road entrances (M6), *structural water* — rivers, ponds, lakes, and coastlines
+that constrain the layout (M7–M8) — and finally *decorative terrain* like fields and
+woodlands (M9).
 
 ## Running
 
@@ -97,13 +97,13 @@ Techniques used or planned (see PLAN.md for where each lands):
   https://www.redblobgames.com/ (esp. [polygonal map generation](https://www.redblobgames.com/maps/mapgen4/) and [making maps with noise](https://www.redblobgames.com/maps/terrain-from-noise/))
 - Poisson-disk sampling (for clustered house/tree placement) —
   https://www.jasondavies.com/poisson-disc/ and Bridson's algorithm
-- Voronoi diagrams + Lloyd's relaxation (for fields/parcels, M8) —
+- Voronoi diagrams + Lloyd's relaxation (for fields/parcels, M9) —
   [`d3-delaunay`](https://github.com/d3/d3-delaunay)
 - Catmull–Rom splines (for organic road curves, M2) —
   https://en.wikipedia.org/wiki/Centripetal_Catmull%E2%80%93Rom_spline
-- Road-network generation + planar graph planarization (for the multi-road network, M4–M5) —
+- Road-network generation + planar graph planarization (for road layouts and approaches, M4–M6) —
   https://en.wikipedia.org/wiki/Planar_graph and segment-intersection / arrangement methods
-- Structural water — rivers/lakes/coast as layout constraints (M6–M7) —
+- Structural water — rivers/lakes/coast as layout constraints (M7–M8) —
   watabou's water-bearing generators (e.g. [village](https://watabou.github.io/village.html))
   and river meander modeling https://en.wikipedia.org/wiki/Meander
 - Point-in-polygon and polygon offsetting —

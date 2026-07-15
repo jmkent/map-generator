@@ -35,15 +35,15 @@ This boundary is what makes "refine from there" cheap instead of a rewrite.
 ## 2. Confirmed decisions
 
 - **Geometry libs:** `d3-delaunay` approved for Voronoi/relaxation (fields, lot
-  subdivision). Wired in at **M8** (decorative terrain), not before. `polygon-clipping`
-  deferred until a stage actually needs boolean ops. Everything through M7 (road-graph
+  subdivision). Wired in at **M9** (decorative terrain), not before. `polygon-clipping`
+  deferred until a stage actually needs boolean ops. Everything through M8 (road-graph
   planarization and water) uses hand-rolled primitives (bbox, inset, SAT, segment/spline
   intersection).
 - **Camera:** **near-orthographic** — `@babylonjs/lite` exposes no true orthographic
   projection, so a narrow FOV (~8°) viewed from a correspondingly large radius makes
   perspective divergence negligible, giving the flat, map-like watabou feel. Fixed tilt,
   controls locked, auto-framed to bounds. Widening the FOV yields a perspective "diorama"
-  toggle, deferred to **M9**.
+  toggle, deferred to **M10**.
 - **RNG:** seedable 32-bit PRNG (mulberry32/sfc32) with **named streams** — each stage's
   generator derived from `hash(masterSeed, streamName)` so adding/reordering a stage does
   not shift earlier stages' random sequences. Regressions stay local; untouched stages'
@@ -67,14 +67,14 @@ src/
       catmullRom.ts        # centripetal spline through control points
       graph.ts             # road-graph planarization: edge intersection + splitting
       sampling.ts          # weighted pick, poisson-disk, jitter
-      voronoi.ts           # d3-delaunay wrapper + Lloyd relaxation (M8)
+      voronoi.ts           # d3-delaunay wrapper + Lloyd relaxation (M9)
     stages/
       boundary.ts          # village extent polygon
-      water.ts             # STRUCTURAL: rivers, ponds, lakes, coast (runs early, M6–M7)
+      water.ts             # STRUCTURAL: rivers, ponds, lakes, coast (runs early, M7–M8)
       roads.ts             # road graph: primaries + secondaries/spokes + approaches
       parcels.ts           # subdivide buildable band into lots (water-aware)
       buildings.ts         # place clustered house footprints (water-aware)
-      terrain.ts           # DECORATIVE: fields, woodlands, grass (M8)
+      terrain.ts           # DECORATIVE: fields, woodlands, grass (M9)
   render/                  # ── Babylon. Consumes MapModel. ──
     Renderer.ts            # engine/scene lifecycle
     framing.ts             # pure near-orthographic framing math (tested)
@@ -108,11 +108,11 @@ Babylon into the module graph.
   primaries out to the map edge as entrances. Crossings are **planarized** — edges split at
   intersections into shared junction nodes — so the network is genuinely connected and can
   keep growing without a rewrite. (M2 shipped the single-primary + branch-stub subset;
-  M4–M5 generalize it.)
+  M4–M6 generalize it.)
 - **Logical clumps:** **Poisson-disk sampling with a spatially-varying density function**
   (higher near roads/center **and water access**, zero over water or outside boundary). One
   primitive drives both house and tree clustering; the falloff function is the "clump"
-  control, and water contributes a proximity term (M6–M7).
+  control, and water contributes a proximity term (M7–M8).
 - **Water is structural terrain, not decoration.** Real settlements are built around water,
   so water is generated **early** (a `water.ts` stage before roads) and *constrains* the
   layout — unlike woodlands/fields, which are painted on at the end. The three forms escalate
@@ -121,7 +121,7 @@ Babylon into the module graph.
   near; a large **lake/ocean** becomes a **border** that replaces part of the boundary and
   makes a waterfront town. All feed the density falloff so the village hugs the water.
 - **Decorative terrain:** material-zoned ground filling what's left after water + settlement;
-  farmland fields as **Voronoi + Lloyd relaxation** patches (M8); woodlands as thin-instanced
+  farmland fields as **Voronoi + Lloyd relaxation** patches (M9); woodlands as thin-instanced
   trees seeded by the Poisson sampler under a density mask. No constraint on layout.
 - **Houses:** footprint polygon (rect with occasional L/T variation) → `inset` for wall
   thickness → extrude to a seeded height → optional roof prism. Thin-instanced via
@@ -143,12 +143,11 @@ Babylon into the module graph.
 Each milestone is a shippable vertical slice. The village "clicks" visually at **M3**.
 
 > **Status:** Milestones marked `[x]` are shipped. The remaining work starts with **M5**,
-> which adds
-> off-map entrances; **M6–M7** add *structural
-> water* (rivers, then ponds/lakes/coast) which constrains the layout; **M8** paints
-> *decorative terrain* (fields/woodlands) on what's left; **M9** is interactivity & polish.
-> Structural water precedes decorative terrain deliberately — water shapes where the town
-> goes, woodlands just fill the gaps.
+> which adds village-layout strategies and civic space; **M6** adds off-map entrances;
+> **M7–M8** add *structural water* (rivers, then ponds/lakes/coast) which constrains the
+> layout; **M9** paints *decorative terrain* (fields/woodlands) on what is left; **M10** is
+> interactivity and polish. Structural layout and water precede decorative terrain
+> deliberately: they shape where the town can go, while woodlands fill the gaps.
 
 ### [x] M0 — Scaffold & fixed-angle stage
 Strip the sandbox demo from `src/main.ts`. Stand up `Renderer` + a near-orthographic camera
@@ -231,7 +230,7 @@ graph, so the village reads as a connected town rather than one street.
   shared junction nodes, so crossing roads actually meet. New shared util
   `geometry/graph.ts` (segment intersection, edge splitting, near-coincident node merge).
 - **Model migration:** `RoadEdge.kind` becomes a class enum (`primary | secondary | lane`,
-  `approach` added in M5) with width per class. Generalize the polyline reconstruction in
+  `approach` added in M6) with width per class. Generalize the polyline reconstruction in
   `roads.ts`/`parcels.ts` from "the single main chain" to "every maximal chain per class".
 
 **Deliverable:** a denser, connected village — several roads crossing at junctions, houses
@@ -239,7 +238,8 @@ lining more frontage.
 
 **Test plan:**
 - **Invariants:** graph connected; **planar** — no two edges cross except at a shared node;
-  primary count == param; every edge inside the boundary; no zero-length edges; junction
+  seed-varied primary count follows the configured target; every edge inside the boundary;
+  no zero-length edges; junction
   nodes have degree ≥ 3.
 - **Determinism + stream isolation:** road sub-model identical for a seed; unchanged by
   boundary/parcel params.
@@ -248,7 +248,146 @@ lining more frontage.
 - **Golden:** SVG snapshots.
 - **Mesher (headless):** road `GeometryData` counts/bounds; per-class widths honored.
 
-### [ ] M5 — Approach roads (village entrances)
+### [ ] M5 — Settlement morphology & civic space
+
+The existing generator makes one settlement morphology: a relatively dense, irregular,
+connected village. Real rural settlements are not a flat list of interchangeable road graphs.
+Settlement scale, degree of nucleation, and physical layout are related but distinct concerns.
+A small hamlet may be linear or clustered; a large farm complex may resemble a tiny village;
+and visually similar row settlements may arise from fundamentally different parcel systems.
+
+M5 introduces explicit **settlement morphology**. Forms are generator contracts rather than
+claims of exact historical reconstruction. Historical settlement types provide exemplars and
+later regional profiles, but the core model describes the spatial rule that roads, civic space,
+and parcels must share.
+
+**Taxonomy:** the initial family has seven morphological forms:
+
+| Form | Historical exemplars | Road and parcel consequence |
+| --- | --- | --- |
+| **Estate** | `Einzelhof`, isolated farmstead, Scandinavian `gård` | A single dominant holding or farm complex with a compact supporting cluster. Generate one principal access route and local yard or service paths; do not invent a village road network. |
+| **Dispersed** | `Weiler`, farmstead hamlet, Scottish `farmtoun` / `fermtoun` | Several separated household or farm clusters linked by sparse paths. Preserve meaningful open land between nuclei and allow only limited secondary connections. |
+| **Clustered** | `Haufendorf`, Swedish `Klungby`, irregular or nucleated village | A dense, irregular agglomeration without strict geometric order. Evolve the current loose-grid strategy into curved through streets, selective cut-throughs, and a compact non-radial core. |
+| **Linear** | `Reihendorf`, `Straßendorf`, Swedish `Radby`, valley or waterside row settlement | Organize settlement along a preferred road, stream, valley, dike, ridge, or clearing edge. Generate an elongated spine with one- or two-sided frontage; parcels follow the axis but need not share regular boundaries or depth. |
+| **Tenement** | English toft-and-croft village, planned row village, `Hufendorf` and `Waldhufendorf` analogues | Repeated frontage holdings are the primary organizing geometry. Subdivide one or two settlement fronts into relatively narrow plots and project deep rear holdings from them. Roads serve the tenement structure rather than independently defining it. |
+| **Common** | `Angerdorf`, English green village, Danish `Forteby` | Reserve a communal open space first and organize roads and frontage around its boundary. The common may be lens-shaped, elongated, or irregular; roads flank or skirt it without consuming it. |
+| **Radial** | `Rundling`, `Runddorf` | Arrange inward-facing farmsteads around a central open space and project wedge-like holdings outward. Prefer one principal entrance and limited secondary access; do not generate a generic ring road or radial traffic hub. |
+
+These forms intentionally describe **morphology rather than settlement size**. Terms such as
+farmstead, hamlet, village, and estate remain useful descriptive or regional labels, but they do
+not select road geometry by themselves. Planned urban grids, bastides, fortified towns, and
+market towns remain outside this rural settlement milestone; they require a different density,
+civic program, and defensive model.
+
+Historical names are retained as **profiles or exemplars**, not top-level generator primitives.
+For example, an `Angerdorf` is a `common` settlement with an elongated or lens-shaped common
+and two flanking routes; an English green village may use the same form with a broader,
+irregular green and less regular frontage. A `Radby` is `linear`; a toft-and-croft village is
+`tenement`. This lets later regional generation select historically informed parameter bundles
+without duplicating the underlying geometry strategy.
+
+**Model and selection:**
+- Select a named preset, not a mutually exclusive morphology. Add
+  `SettlementProfile = estate | weiler | haufendorf | reihendorf | tenement | angerdorf |
+  rundling`; `VillageParams.settlementProfile` accepts one of these profiles or `auto`.
+  `auto` resolves from a named `layout` RNG stream. The selected profile and its resolved layout
+  are stored on `MapModel`, giving tests and future controls a stable explicit choice.
+- Resolve each profile into composable layout axes:
+  `SettlementScale = estate | hamlet | village`,
+  `SettlementNucleation = compact | dispersed`, and
+  `SettlementGeometry = clustered | linear | frontage | common | radial`.
+  A profile may therefore express a linear hamlet, a dispersed farmstead settlement, or a common
+  village without pretending that scale and geometry are the same enum. `LayoutPlan` owns the
+  resolved axes, settlement anchor and extent, preferred axis or entrance, road-growth budget,
+  frontage profile, parcel projection rule, and reserved civic spaces.
+- Generalize `Parcel` from a CCW quad to a convex CCW polygon with explicit road-frontage
+  metadata (`frontage` segment plus serving edge/class) and a convex `buildablePolygon`. M5
+  emits convex strips, wedges, and irregular common-side lots only. Building placement samples a
+  road-oriented rectangle and accepts it only when it lies in `buildablePolygon`; it must no
+  longer infer orientation or dimensions from four fixed parcel vertices.
+- Add `CivicSpace` model data, initially `{ kind: green, polygon }`. Common and radial profiles
+  emit a civic space; other profiles emit none by default. Roads, parcels, and buildings treat it
+  as a hard exclusion, while renderers show it as reserved open land until terrain or later civic
+  generation supplies its surface and use.
+- Extend `RoadClass` with `track` for sparse access and service paths. A central class policy
+  specifies width, termination behavior, and `supportsFrontage`; `track` is renderable and part
+  of movement connectivity but never creates parcel frontage. Estate and dispersed profiles use
+  tracks for access paths; `primary`, `secondary`, and `lane` retain their frontage behavior.
+- Historical profiles remain parameter bundles rather than public regional/cultural data. They
+  select common shape, side count, frontage regularity, strip depth, entrance count, axis source,
+  and the resolved axes above.
+
+**Generation rules:**
+- In M5, resolve the profile after the boundary and materialize one `LayoutPlan` before road
+  growth. M7 changes the physical ordering to `boundary -> profile selection -> water -> layout
+  plan -> roads -> parcels`: water may alter the axis, civic-space placement, or viable profile
+  parameters, but it must not change the seeded profile selection.
+- Reserve form-defining geometry before road growth. For `common` and `radial`, reserve civic
+  space first. For `linear`, derive the preferred axis first. For `tenement`, derive settlement
+  fronts and the parcel projection direction before generating local roads.
+- Dispatch road growth to the form-specific strategy before the existing planarization step.
+  Parcel generation consumes the same plan to choose road-side eligibility, frontage spacing,
+  projection direction, strip proportions, and density, then applies the existing corridor and
+  overlap checks.
+- Preserve shared safeguards for every form: inset-boundary containment, restrained Catmull-Rom
+  curves, frontage-derived spacing, planar intersections, and soft road budgets.
+- The existing M4 loose-grid strategy becomes the basis of `clustered`.
+- A form must never be forced to produce its nominal road count when doing so contradicts its
+  morphology or leaves no viable lots. Form-defining constraints take precedence over target
+  density.
+- `linear` and `tenement` must remain distinct. Linear settlement follows an axis and may have
+  irregular frontage and parcel depth. Tenement settlement derives repeated holdings from
+  frontage subdivision and rearward projection even when its road graph is visually simple.
+- `common` and `radial` must remain distinct. Common settlements face or border shared land;
+  radial settlements additionally require inward-facing frontage and outward parcel projection.
+
+**Delivery sequence:**
+- **M5a - morphology foundation:** add profile selection and resolved axes, `LayoutPlan`, civic
+  spaces, convex parcels with frontage/buildable metadata, building containment against generic
+  buildable polygons, and `track` class policy. Migrate the existing M4 output to the
+  `haufendorf` profile and keep its current golden coverage.
+- **M5b - core forms:** implement `reihendorf`/`tenement` and `angerdorf` on the new contracts.
+  These validate the axis, frontage-projection, and civic-space systems with the largest visual
+  and parcel-generation differences.
+- **M5c - sparse and radial forms:** implement `estate`, `weiler`, and `rundling` after the
+  shared contracts are proven. M5 is complete only once all named profiles pass the common test
+  suite, but M5a and M5b are individually reviewable vertical slices.
+
+**Deliverable:** seed-varied or explicitly selected rural settlements whose road graph, reserved
+civic space, and parcel arrangement agree with a recognizable settlement morphology. Historical
+profiles may produce Angerdorf-, Rundling-, Radby-, Haufendorf-, or toft-and-croft-like results
+without requiring those names to become unrelated top-level algorithms.
+
+**Test plan:**
+- **Selection:** same seed plus `auto` resolves identically; an explicit form override is
+  honored; adding the `layout` stream does not alter boundary output.
+- **Shared invariants:** every profile remains inside the boundary; its complete movement graph,
+  including `track` edges, is planar and connected; parcels and buildings remain clear of roads,
+  tracks, and civic spaces. Only edges whose class policy supports frontage may generate parcels.
+- **Estate:** has exactly one frontage-serving chain or a single `track` approach into the
+  holding, no road cycle, and all accepted parcels lie within `2 * lotDepth` of the dominant
+  holding center.
+- **Dispersed:** retains at least two household clusters whose closest building or parcel points
+  are separated by at least `1.5 * lotDepth`; tracks, rather than frontage roads, bridge gaps.
+- **Clustered:** has at least two degree-3-or-greater junctions, no junction degree above five,
+  and frontage on at least three distinct road chains.
+- **Linear:** has a longitudinal-to-transverse settlement-bounds ratio of at least `2:1` and
+  concentrates at least 80% of frontage on one or two chains aligned within 20 degrees of its
+  preferred axis.
+- **Tenement:** produces repeated frontage subdivisions with materially deeper rear holdings and
+  broadly consistent projection away from the settlement front: median lot depth is at least
+  twice median frontage, and at least 90% of parcel projection vectors point to the same side of
+  their serving front.
+- **Common:** keeps its reserved common clear, has two or more frontage-serving chains within
+  `lotDepth` of different sides of the civic-space boundary, and does not require radial parcel
+  geometry.
+- **Radial:** keeps its central green clear, produces inward-facing frontage and wedge-like
+  outward holdings over at least 180 degrees of the civic-space perimeter, and has no road cycle
+  that encloses the civic-space polygon.
+- **Golden:** add fixed-seed SVG snapshots for every explicit form, representative historical
+  profiles where they materially alter geometry, and the `auto` selection path.
+
+### [ ] M6 — Approach roads (village entrances)
 Extend the primaries out to the **map edge** so the village connects to the surrounding
 country — the roads you actually arrive on.
 
@@ -256,7 +395,7 @@ country — the roads you actually arrive on.
 - **Map extent:** introduce `mapBounds` — the village bounds expanded by a countryside
   margin — as the world the village sits in. The camera frames `mapBounds`, not the tight
   boundary. (This also gives the later water and terrain stages a countryside to fill,
-  M6–M8.)
+  M7–M9.)
 - **Entrances (2–4):** from selected primary endpoints, continue the road's tangent
   outward, crossing the village boundary once, to a point on the `mapBounds` edge. Class
   `approach` (primary width). Entrances are spread by angle; not every endpoint gets one.
@@ -273,12 +412,12 @@ countryside margin around the village.
 - **Framing:** camera frames `mapBounds` (contains village boundary + margin).
 - **Determinism + golden.**
 
-### [ ] M6 — Rivers (flowing structural water)
+### [ ] M7 — Rivers (flowing structural water)
 A river behaves *almost like a road* — a meandering water-spine — but it's water, so it
 constrains the settlement rather than serving it.
 
 **Pipeline position:** a `water.ts` stage runs **early** (after boundary, before roads), so
-every downstream stage already sees the water. Because M0–M5 predate it, this milestone
+every downstream stage already sees the water. Because M0–M6 predate it, this milestone
 retrofits water-awareness into the boundary/road/parcel stages (the cost of adding structural
 generation late — see the note below).
 
@@ -305,20 +444,20 @@ generation late — see the note below).
 - **Golden:** SVG snapshots. **Mesher:** water surface covers the channel; no NaNs.
 
 > **Note — ordering trade-off.** Structurally, water belongs *before* the settlement in the
-> pipeline, so ideally it would have been built before M2–M5. Scheduling it at M6 means the
-> road/parcel stages get water-awareness bolted on rather than designed in, and M6–M7 will
+> pipeline, so ideally it would have been built before M2–M6. Scheduling it at M7 means the
+> road/parcel stages get water-awareness bolted on rather than designed in, and M7–M8 will
 > touch code those milestones own. That's an accepted cost of prioritizing the road network
 > first; if the retrofit proves large, the alternative is to pull the `water.ts` stage (at
 > least a river channel) forward ahead of the M4 road-network work so roads are water-aware
 > from the start.
 
-### [ ] M7 — Standing water & coastline (ponds, lakes, ocean border)
+### [ ] M8 — Standing water & coastline (ponds, lakes, ocean border)
 Closed water bodies, escalating to a large body that becomes a **border**.
 
 **Scope:**
 - **Ponds:** small organic water blobs (mini-boundary polygons); local avoidance + mild
   amenity bias.
-- **Lakes:** larger closed bodies, optionally fed by the M6 river; shoreline clustering.
+- **Lakes:** larger closed bodies, optionally fed by the M7 river; shoreline clustering.
 - **Coast/ocean as border:** a large body occupying a region of `mapBounds`, its shoreline
   **replacing part of the village boundary** → a waterfront town. The settlement fills the
   land side; roads run parallel to the shore and lead to optional **docks/harbor** where a
@@ -336,7 +475,7 @@ hugging the shore; ponds dotting the interior.
   dock road terminates at the shore.
 - **Determinism + golden + mesher.**
 
-### [ ] M8 — Decorative terrain (fields & woodlands)
+### [ ] M9 — Decorative terrain (fields & woodlands)
 Now purely cosmetic: `terrain.ts` fills the countryside inside `mapBounds` that is left over
 after water + settlement. Farmland fields as relaxed Voronoi patches (wire in `d3-delaunay`
 here), woodlands as thin-instanced trees under a density mask, grass. `groundMesher.ts`
@@ -355,7 +494,7 @@ fill the hills.
 - **Mesher (headless):** ground `GeometryData` covers bounds; zone material assignment
   matches cell types; tree instance count matches sampled points.
 
-### [ ] M9 — Interactivity & polish
+### [ ] M10 — Interactivity & polish
 Seed input + regenerate; a few param sliders (village size, density, "has river");
 click-to-inspect via `pickAsync`; screenshot export via `captureScreenshot`; full param
 set encoded in the shareable URL; perspective-camera toggle.
