@@ -20,9 +20,6 @@ export const STAGE_FOV = (8 * Math.PI) / 180;
 /** Extra breathing room around the framed bounds (>= 1). */
 export const STAGE_MARGIN = 1.1;
 
-/** The fixed M0 stage: a 200×200 patch centered at the origin. */
-export const STAGE_BOUNDS: Bounds = { minX: -100, minY: -100, maxX: 100, maxY: 100 };
-
 export interface FramingParams {
     /** Vertical field of view, radians. */
     fovY: number;

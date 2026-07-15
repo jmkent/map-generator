@@ -32,3 +32,28 @@ export function boundsRadius(b: Bounds): number {
     const { width, height } = boundsSize(b);
     return Math.hypot(width, height) / 2;
 }
+
+/** A closed polygon, given as an ordered ring of vertices (CCW by convention). */
+export type Polygon = Vec2[];
+
+/** Tunable inputs to the village generator. */
+export interface VillageParams {
+    /** Mean radius of the village boundary, world units. */
+    radius: number;
+    /** Number of vertices around the boundary ring. */
+    boundaryPoints: number;
+    /** Radial variation of the boundary, 0 (circle) .. ~0.5 (very lumpy). */
+    boundaryIrregularity: number;
+}
+
+/**
+ * The generated village. A plain, JSON-serializable value (no Babylon, no
+ * functions) so it can be deep-compared, snapshotted, and rendered by either the
+ * Babylon or SVG renderer. Grows one field per stage as milestones land.
+ */
+export interface MapModel {
+    seed: string;
+    params: VillageParams;
+    bounds: Bounds;
+    boundary: Polygon;
+}

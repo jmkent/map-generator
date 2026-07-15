@@ -1,6 +1,6 @@
-// Engine/scene lifecycle for the map stage. Consumes a plain Bounds and sets up
-// a framed, fixed-angle view over an empty ground + measurement grid. Future
-// milestones will add meshers that consume a MapModel; M0 renders only the stage.
+// Engine/scene lifecycle for the map stage. Consumes a MapModel and renders it
+// at a framed, fixed-angle view. M1 draws the boundary polygon as a flat ground
+// patch over a reference grid; later milestones add road/building/terrain meshers.
 
 import {
     createEngine,
@@ -9,6 +9,7 @@ import {
     createGround,
     createStandardMaterial,
     createGridMaterial,
+    createMeshFromData,
     addToScene,
     registerScene,
     startEngine,
@@ -17,9 +18,10 @@ import {
     type ArcRotateCamera,
 } from "@babylonjs/lite";
 
-import type { Bounds } from "../gen/types";
+import type { MapModel } from "../gen/types";
 import { boundsCenter, boundsSize } from "../gen/types";
 import { createStageCamera, applyStageFraming } from "./camera";
+import { boundaryGeometry } from "./meshers/boundaryMesher";
 
 export interface Renderer {
     engine: EngineContext;
@@ -34,37 +36,38 @@ function canvasAspect(canvas: HTMLCanvasElement): number {
     return w / h;
 }
 
-/** Build the stage: engine, scene, ground+grid framed by a fixed-angle camera. */
-export async function createRenderer(canvas: HTMLCanvasElement, bounds: Bounds): Promise<Renderer> {
+/** Build the stage: engine, scene, reference grid, boundary patch, framed camera. */
+export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel): Promise<Renderer> {
     const engine = await createEngine(canvas);
     const scene = createSceneContext(engine);
     scene.clearColor = { r: 0.05, g: 0.06, b: 0.08, a: 1.0 };
 
+    const bounds = model.bounds;
     const center = boundsCenter(bounds);
     const { width, height } = boundsSize(bounds);
 
-    // Solid ground patch covering the stage.
-    const ground = createGround(engine, { width, height });
-    ground.position.set(center.x, 0, center.y);
-    const groundMat = createStandardMaterial();
-    groundMat.diffuseColor = [0.15, 0.55, 0.2];
-    groundMat.specularColor = [0.05, 0.05, 0.05];
-    ground.material = groundMat;
-    addToScene(scene, ground);
-
-    // Transparent measurement grid floating just above the ground.
+    // Transparent reference grid across the model bounds, at y=0.
     const grid = createGround(engine, { width, height });
-    grid.position.set(center.x, 0.02, center.y);
+    grid.position.set(center.x, 0, center.y);
     grid.material = createGridMaterial({
-        mainColor: [0, 0, 0],
-        lineColor: [0.9, 0.95, 1.0],
+        mainColor: [0.08, 0.1, 0.13],
+        lineColor: [0.35, 0.4, 0.48],
         gridRatio: 10,
         majorUnitFrequency: 5,
-        minorUnitVisibility: 0.4,
-        opacity: 0.85,
+        minorUnitVisibility: 0.5,
+        opacity: 0.6,
     });
     grid.pickable = false;
     addToScene(scene, grid);
+
+    // Boundary polygon as a flat green patch, just above the grid.
+    const geo = boundaryGeometry(model.boundary, 0.02);
+    const boundaryMesh = createMeshFromData(engine, "boundary", geo.positions, geo.normals, geo.indices);
+    const boundaryMat = createStandardMaterial();
+    boundaryMat.diffuseColor = [0.15, 0.45, 0.2];
+    boundaryMat.specularColor = [0.03, 0.03, 0.03];
+    boundaryMesh.material = boundaryMat;
+    addToScene(scene, boundaryMesh);
 
     addToScene(scene, createHemisphericLight([0.2, 1, 0.3], 1.0));
 

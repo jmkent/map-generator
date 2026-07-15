@@ -6,7 +6,7 @@ import "./style.css";
 import { parseSeed, randomSeed, serializeState } from "./app/urlState";
 import { createHud } from "./ui/hud";
 import { createRenderer } from "./render/Renderer";
-import { STAGE_BOUNDS } from "./render/framing";
+import { generateVillage } from "./gen/pipeline";
 
 const seed = parseSeed(window.location.search) ?? randomSeed();
 
@@ -20,5 +20,7 @@ if (window.location.search !== query) {
 const hud = createHud();
 hud.setSeed(seed);
 
+const model = generateVillage(seed);
+
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
-await createRenderer(canvas, STAGE_BOUNDS);
+await createRenderer(canvas, model);
