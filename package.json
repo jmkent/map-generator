@@ -1,0 +1,24 @@
+{
+  "name": "babylon-sandbox",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1",
+    "vitest": "^4.1.10"
+  },
+  "allowScripts": {
+    "fsevents@2.3.3": true
+  },
+  "dependencies": {
+    "@babylonjs/lite": "^1.10.0"
+  }
+}
