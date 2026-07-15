@@ -27,10 +27,20 @@ export function renderModelSvg(model: MapModel, opts: SvgOptions = {}): string {
 
     const points = model.boundary.map((p) => `${tx(p.x)},${ty(p.y)}`).join(" ");
 
+    const posById = new Map(model.roads.nodes.map((n) => [n.id, n.pos]));
+    const roadLines = model.roads.edges.map((e) => {
+        const a = posById.get(e.a);
+        const b = posById.get(e.b);
+        if (!a || !b) return "";
+        const color = e.kind === "main" ? "#d9c48a" : "#b9a878";
+        return `  <line x1="${tx(a.x)}" y1="${ty(a.y)}" x2="${tx(b.x)}" y2="${ty(b.y)}" stroke="${color}" stroke-width="${round(e.width)}" stroke-linecap="round"/>`;
+    });
+
     return [
         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`,
         `  <rect width="${w}" height="${h}" fill="#0c1016"/>`,
         `  <polygon points="${points}" fill="#276f2b" stroke="#e8ecf1" stroke-width="1" stroke-linejoin="round"/>`,
+        ...roadLines,
         `</svg>`,
         ``,
     ].join("\n");

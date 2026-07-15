@@ -5,7 +5,7 @@
 // (last connects to first), with CCW winding treated as positive area.
 
 import type { Bounds, Polygon, Vec2 } from "../types";
-import { perp, normalize, sub, scale, add } from "./vec2";
+import { perp, normalize, sub, scale, add, cross } from "./vec2";
 
 /** Signed area via the shoelace formula. Positive for CCW winding. */
 export function signedArea(poly: Polygon): number {
@@ -167,6 +167,37 @@ export function inset(poly: Polygon, dist: number): Polygon {
         result.push(hit ?? add(curr, scale(nIn, dist)));
     }
     return result;
+}
+
+/**
+ * Nearest forward intersection of a ray (origin + t·dir, t>0) with the polygon's
+ * edges. Returns the hit point and its distance along the ray, or null if the
+ * ray misses. `dir` need not be normalized; `distance` is in units of `dir`.
+ */
+export function intersectRayPolygon(
+    poly: Polygon,
+    origin: Vec2,
+    dir: Vec2,
+): { point: Vec2; distance: number } | null {
+    const n = poly.length;
+    let best: { point: Vec2; distance: number } | null = null;
+    const eps = 1e-9;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+        const a = poly[j];
+        const b = poly[i];
+        const e = sub(b, a);
+        const denom = cross(dir, e);
+        if (Math.abs(denom) < eps) continue; // ray parallel to edge
+        const diff = sub(a, origin);
+        const t = cross(diff, e) / denom; // distance along ray
+        const u = cross(diff, dir) / denom; // position along edge [0,1]
+        if (t > eps && u >= -eps && u <= 1 + eps) {
+            if (best === null || t < best.distance) {
+                best = { point: { x: origin.x + dir.x * t, y: origin.y + dir.y * t }, distance: t };
+            }
+        }
+    }
+    return best;
 }
 
 /** Intersection of two lines given point+direction each. Null if parallel. */

@@ -4,10 +4,11 @@ import { renderModelSvg } from "../../src/debug/svgRenderer";
 import { generateVillage } from "../../src/gen/pipeline";
 
 describe("renderModelSvg", () => {
-    it("produces a well-formed SVG with a boundary polygon", () => {
+    it("produces a well-formed SVG with a boundary and roads", () => {
         const svg = renderModelSvg(generateVillage("village"));
         expect(svg.startsWith("<svg")).toBe(true);
         expect(svg).toContain("<polygon");
+        expect(svg).toContain("<line");
         expect(svg.trimEnd().endsWith("</svg>")).toBe(true);
     });
 
@@ -22,7 +23,7 @@ describe("renderModelSvg", () => {
     for (const seed of ["village", "hamlet", "riverford"]) {
         it(`matches the golden render for seed "${seed}"`, async () => {
             await expect(renderModelSvg(generateVillage(seed))).toMatchFileSnapshot(
-                `./__snapshots__/boundary-${seed}.svg`,
+                `./__snapshots__/model-${seed}.svg`,
             );
         });
     }

@@ -22,6 +22,7 @@ import type { MapModel } from "../gen/types";
 import { boundsCenter, boundsSize } from "../gen/types";
 import { createStageCamera, applyStageFraming } from "./camera";
 import { boundaryGeometry } from "./meshers/boundaryMesher";
+import { roadGeometry } from "./meshers/roadMesher";
 
 export interface Renderer {
     engine: EngineContext;
@@ -68,6 +69,18 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
     boundaryMat.specularColor = [0.03, 0.03, 0.03];
     boundaryMesh.material = boundaryMat;
     addToScene(scene, boundaryMesh);
+
+    // Roads as flat ribbons, above the boundary patch.
+    const roadGeo = roadGeometry(model.roads, 0.04);
+    if (roadGeo.indices.length > 0) {
+        const roadMesh = createMeshFromData(engine, "roads", roadGeo.positions, roadGeo.normals, roadGeo.indices);
+        const roadMat = createStandardMaterial();
+        roadMat.diffuseColor = [0.85, 0.77, 0.54];
+        roadMat.specularColor = [0.02, 0.02, 0.02];
+        roadMesh.material = roadMat;
+        roadMesh.pickable = false;
+        addToScene(scene, roadMesh);
+    }
 
     addToScene(scene, createHemisphericLight([0.2, 1, 0.3], 1.0));
 

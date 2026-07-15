@@ -82,6 +82,25 @@ describe("isSimple", () => {
     });
 });
 
+describe("intersectRayPolygon", () => {
+    it("finds the nearest forward crossing from an interior origin", () => {
+        const hit = P.intersectRayPolygon(SQUARE, { x: 0.5, y: 0.5 }, { x: 1, y: 0 });
+        expect(hit).not.toBeNull();
+        expect(hit!.point.x).toBeCloseTo(1, 9);
+        expect(hit!.point.y).toBeCloseTo(0.5, 9);
+        expect(hit!.distance).toBeCloseTo(0.5, 9);
+    });
+
+    it("reports distance in units of the (unnormalized) direction", () => {
+        const hit = P.intersectRayPolygon(SQUARE, { x: 0.5, y: 0.5 }, { x: 2, y: 0 });
+        expect(hit!.distance).toBeCloseTo(0.25, 9);
+    });
+
+    it("returns null when the ray misses every edge", () => {
+        expect(P.intersectRayPolygon(SQUARE, { x: 2, y: 0.5 }, { x: 1, y: 0 })).toBeNull();
+    });
+});
+
 describe("inset", () => {
     it("shrinks area monotonically while preserving CCW winding", () => {
         const poly = regularPolygon(24, 10);

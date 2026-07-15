@@ -44,6 +44,44 @@ export interface VillageParams {
     boundaryPoints: number;
     /** Radial variation of the boundary, 0 (circle) .. ~0.5 (very lumpy). */
     boundaryIrregularity: number;
+    /** Interior control points shaping the main street (endpoints are added). */
+    roadControlPoints: number;
+    /** Polyline samples per Catmull–Rom segment of the main street. */
+    roadSamples: number;
+    /** Perpendicular jitter of main-street control points, fraction of radius. */
+    roadJitter: number;
+    /** Margin keeping roads inside the boundary, fraction of radius. */
+    roadInset: number;
+    /** Number of branch stubs off the main street. */
+    branchCount: number;
+    /** Width of the main street, world units. */
+    mainRoadWidth: number;
+    /** Width of branch stubs, world units. */
+    branchRoadWidth: number;
+}
+
+/** Classification of a road edge. */
+export type RoadKind = "main" | "branch";
+
+/** A junction/point in the road graph. */
+export interface RoadNode {
+    id: number;
+    pos: Vec2;
+}
+
+/** A straight road segment between two nodes, with a render width. */
+export interface RoadEdge {
+    a: number;
+    b: number;
+    kind: RoadKind;
+    width: number;
+}
+
+/** Road network as a graph: nodes (points) joined by straight edges. The main
+ *  street is a chain of "main" edges; each branch attaches to a main node. */
+export interface RoadNetwork {
+    nodes: RoadNode[];
+    edges: RoadEdge[];
 }
 
 /**
@@ -56,4 +94,5 @@ export interface MapModel {
     params: VillageParams;
     bounds: Bounds;
     boundary: Polygon;
+    roads: RoadNetwork;
 }
