@@ -38,8 +38,11 @@ This boundary is what makes "refine from there" cheap instead of a rewrite.
   subdivision). Wired in at **M4**, not before. `polygon-clipping` deferred until a
   stage actually needs boolean ops. Hand-rolled primitives (bbox, inset, Poisson-disk)
   for M0–M3.
-- **Camera:** **orthographic**, fixed tilt, controls locked, auto-framed to bounds
-  (watabou-like flat map feel). Perspective toggle deferred to **M5**.
+- **Camera:** **near-orthographic** — `@babylonjs/lite` exposes no true orthographic
+  projection, so a narrow FOV (~8°) viewed from a correspondingly large radius makes
+  perspective divergence negligible, giving the flat, map-like watabou feel. Fixed tilt,
+  controls locked, auto-framed to bounds. Widening the FOV yields a perspective "diorama"
+  toggle, deferred to **M5**.
 - **RNG:** seedable 32-bit PRNG (mulberry32/sfc32) with **named streams** — each stage's
   generator derived from `hash(masterSeed, streamName)` so adding/reordering a stage does
   not shift earlier stages' random sequences. Regressions stay local; untouched stages'
@@ -70,7 +73,8 @@ src/
       terrain.ts           # fields, forest, grass, optional river/water
   render/                  # ── Babylon. Consumes MapModel. ──
     Renderer.ts            # engine/scene lifecycle
-    camera.ts              # fixed-angle ortho camera + auto-frame to bounds
+    framing.ts             # pure near-orthographic framing math (tested)
+    camera.ts              # fixed-angle near-ortho camera + auto-frame to bounds
     palette.ts             # materials/colors
     geometryData.ts        # plain GeometryData type + Babylon upload adapter
     meshers/
@@ -104,8 +108,8 @@ Babylon into the module graph.
 - **Houses:** footprint polygon (rect with occasional L/T variation) → `inset` for wall
   thickness → extrude to a seeded height → optional roof prism. Thin-instanced via
   `addThinInstance`.
-- **Fixed angle:** orthographic camera at fixed tilt, controls locked, auto-framed to the
-  boundary bbox.
+- **Fixed angle:** near-orthographic camera (narrow FOV, large radius) at fixed tilt,
+  controls locked, auto-framed to the boundary bbox.
 
 ## 5. Determinism rules (enforced by test)
 
@@ -121,17 +125,17 @@ Babylon into the module graph.
 Each milestone is a shippable vertical slice. The village "clicks" visually at **M3**.
 
 ### M0 — Scaffold & fixed-angle stage
-Strip the sandbox demo from `src/main.ts`. Stand up `Renderer` + orthographic camera
-locked at a fixed tilt, auto-framing a bounds rectangle. Parse seed from URL, show it in a
-HUD. `git init` + first commit.
+Strip the sandbox demo from `src/main.ts`. Stand up `Renderer` + a near-orthographic camera
+(narrow FOV, large radius) locked at a fixed tilt, auto-framing a bounds rectangle. Parse
+seed from URL, show it in a HUD. `git init` + first commit.
 
 **Deliverable:** empty framed ground at a fixed watabou-like angle, `?seed=…` in the URL.
 
 **Test plan:**
 - `urlState`: unit tests for seed/param ⇄ URL round-trip, including missing/malformed
   params falling back to defaults.
-- `camera`: given a bounds rect, `frame()` produces an ortho box that contains the bounds
-  with expected margin (pure math on the framing helper, no GPU).
+- `framing`: given a bounds rect, `frameBounds()` produces a target + radius that fit the
+  bounds within the frustum with the expected margin (pure math, no GPU).
 - Smoke: app boots without throwing (thin; the real coverage is headless in later tiers).
 
 ### M1 — Deterministic core + boundary
