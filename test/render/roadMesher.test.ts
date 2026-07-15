@@ -11,8 +11,8 @@ const TWO_EDGES: RoadNetwork = {
         { id: 2, pos: { x: 10, y: 10 } },
     ],
     edges: [
-        { a: 0, b: 1, kind: "main", width: 4 },
-        { a: 1, b: 2, kind: "branch", width: 2 },
+        { a: 0, b: 1, kind: "primary", width: 4 },
+        { a: 1, b: 2, kind: "lane", width: 2 },
     ],
 };
 
@@ -50,7 +50,7 @@ describe("roadGeometry", () => {
                 { id: 0, pos: { x: 5, y: 5 } },
                 { id: 1, pos: { x: 5, y: 5 } },
             ],
-            edges: [{ a: 0, b: 1, kind: "main", width: 3 }],
+            edges: [{ a: 0, b: 1, kind: "primary", width: 3 }],
         };
         expect(roadGeometry(net).indices).toHaveLength(0);
     });

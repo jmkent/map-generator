@@ -9,6 +9,7 @@
 import type { Parcel, Polygon, RoadNetwork, Vec2 } from "../types";
 import type { Rng } from "../rng";
 import { centroid, contains, convexOverlap, ensureCCW } from "../geometry/polygon";
+import { roadChains } from "../geometry/graph";
 import { add, dist, normalize, perp, scale, sub } from "../geometry/vec2";
 
 export interface ParcelParams {
@@ -37,7 +38,7 @@ export function generateParcels(rng: Rng, params: ParcelParams): Parcel[] {
 
     const accepted: Parcel[] = [];
 
-    for (const line of roadPolylines(roads)) {
+    for (const line of roadChains(roads)) {
         const frontOffset = line.width / 2 + lotSetback;
         const backOffset = frontOffset + lotDepth;
 
@@ -76,54 +77,6 @@ export function generateParcels(rng: Rng, params: ParcelParams): Parcel[] {
 function edgeRect(a: Vec2, b: Vec2, width: number): Polygon {
     const h = scale(normalize(perp(sub(b, a))), width / 2);
     return ensureCCW([sub(a, h), add(a, h), add(b, h), sub(b, h)]);
-}
-
-interface Polyline {
-    points: Vec2[];
-    width: number;
-}
-
-/** Reconstruct ordered polylines from the road graph: the main street as one
- *  chain, each branch as its own two-point line. Order is deterministic. */
-function roadPolylines(net: RoadNetwork): Polyline[] {
-    const posById = new Map(net.nodes.map((n) => [n.id, n.pos]));
-    const lines: Polyline[] = [];
-
-    const mainEdges = net.edges.filter((e) => e.kind === "main");
-    if (mainEdges.length > 0) {
-        const adj = new Map<number, number[]>();
-        const link = (from: number, to: number) => {
-            const list = adj.get(from);
-            if (list) list.push(to);
-            else adj.set(from, [to]);
-        };
-        for (const e of mainEdges) {
-            link(e.a, e.b);
-            link(e.b, e.a);
-        }
-        const ends = [...adj.entries()].filter(([, ns]) => ns.length === 1).map(([id]) => id);
-        const start = ends.length > 0 ? Math.min(...ends) : Math.min(...adj.keys());
-
-        const order: number[] = [start];
-        const seen = new Set<number>([start]);
-        let current = start;
-        while (true) {
-            const next = (adj.get(current) ?? []).find((n) => !seen.has(n));
-            if (next === undefined) break;
-            seen.add(next);
-            order.push(next);
-            current = next;
-        }
-        lines.push({ points: order.map((id) => posById.get(id)!), width: mainEdges[0].width });
-    }
-
-    for (const e of net.edges) {
-        if (e.kind === "branch") {
-            lines.push({ points: [posById.get(e.a)!, posById.get(e.b)!], width: e.width });
-        }
-    }
-
-    return lines;
 }
 
 interface Segment {

@@ -44,20 +44,24 @@ export interface VillageParams {
     boundaryPoints: number;
     /** Radial variation of the boundary, 0 (circle) .. ~0.5 (very lumpy). */
     boundaryIrregularity: number;
-    /** Interior control points shaping the main street (endpoints are added). */
-    roadControlPoints: number;
-    /** Polyline samples per Catmull–Rom segment of the main street. */
+    /** Number of primary through-roads in the settlement's loose grid. */
+    primaryCount: number;
+    /** Polyline samples per Catmull–Rom segment of a primary road. */
     roadSamples: number;
-    /** Perpendicular jitter of main-street control points, fraction of radius. */
+    /** Trunk-road anchor jitter away from the boundary center, fraction of radius. */
     roadJitter: number;
     /** Margin keeping roads inside the boundary, fraction of radius. */
     roadInset: number;
-    /** Number of branch stubs off the main street. */
-    branchCount: number;
-    /** Width of the main street, world units. */
-    mainRoadWidth: number;
-    /** Width of branch stubs, world units. */
-    branchRoadWidth: number;
+    /** Number of secondary connectors linking primaries into loops. */
+    secondaryCount: number;
+    /** Number of lane stubs off primaries for extra frontage. */
+    laneCount: number;
+    /** Width of primary roads, world units. */
+    primaryRoadWidth: number;
+    /** Width of secondary roads, world units. */
+    secondaryRoadWidth: number;
+    /** Width of lanes, world units. */
+    laneRoadWidth: number;
     /** Road-frontage width of a lot, world units. */
     lotWidth: number;
     /** Depth of a lot away from the road, world units. */
@@ -98,8 +102,8 @@ export interface Building {
     height: number;
 }
 
-/** Classification of a road edge. */
-export type RoadKind = "main" | "branch";
+/** Road class, widest to narrowest. `approach` (off-map entrances) arrives in M5. */
+export type RoadClass = "primary" | "secondary" | "lane";
 
 /** A junction/point in the road graph. */
 export interface RoadNode {
@@ -107,16 +111,17 @@ export interface RoadNode {
     pos: Vec2;
 }
 
-/** A straight road segment between two nodes, with a render width. */
+/** A straight road segment between two nodes, with a class and render width. */
 export interface RoadEdge {
     a: number;
     b: number;
-    kind: RoadKind;
+    kind: RoadClass;
     width: number;
 }
 
-/** Road network as a graph: nodes (points) joined by straight edges. The main
- *  street is a chain of "main" edges; each branch attaches to a main node. */
+/** Road network as a planar graph: nodes (junctions/endpoints) joined by straight
+ *  edges that meet only at nodes. Offset primaries form a loose grid; secondaries
+ *  close local blocks and lanes add frontage. */
 export interface RoadNetwork {
     nodes: RoadNode[];
     edges: RoadEdge[];

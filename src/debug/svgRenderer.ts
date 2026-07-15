@@ -32,7 +32,7 @@ export function renderModelSvg(model: MapModel, opts: SvgOptions = {}): string {
         const a = posById.get(e.a);
         const b = posById.get(e.b);
         if (!a || !b) return "";
-        const color = e.kind === "main" ? "#d9c48a" : "#b9a878";
+        const color = e.kind === "primary" ? "#d9c48a" : e.kind === "secondary" ? "#c9b47a" : "#b9a878";
         return `  <line x1="${tx(a.x)}" y1="${ty(a.y)}" x2="${tx(b.x)}" y2="${ty(b.y)}" stroke="${color}" stroke-width="${round(e.width)}" stroke-linecap="round"/>`;
     });
 

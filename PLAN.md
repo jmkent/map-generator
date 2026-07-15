@@ -142,14 +142,15 @@ Babylon into the module graph.
 
 Each milestone is a shippable vertical slice. The village "clicks" visually at **M3**.
 
-> **Status:** M0–M3 are shipped. The remaining milestones run in build order: **M4–M5**
-> deepen the road network (multi-road town + off-map entrances); **M6–M7** add *structural
+> **Status:** Milestones marked `[x]` are shipped. The remaining work starts with **M5**,
+> which adds
+> off-map entrances; **M6–M7** add *structural
 > water* (rivers, then ponds/lakes/coast) which constrains the layout; **M8** paints
 > *decorative terrain* (fields/woodlands) on what's left; **M9** is interactivity & polish.
 > Structural water precedes decorative terrain deliberately — water shapes where the town
 > goes, woodlands just fill the gaps.
 
-### M0 — Scaffold & fixed-angle stage
+### [x] M0 — Scaffold & fixed-angle stage
 Strip the sandbox demo from `src/main.ts`. Stand up `Renderer` + a near-orthographic camera
 (narrow FOV, large radius) locked at a fixed tilt, auto-framing a bounds rectangle. Parse
 seed from URL, show it in a HUD. `git init` + first commit.
@@ -163,7 +164,7 @@ seed from URL, show it in a HUD. `git init` + first commit.
   bounds within the frustum with the expected margin (pure math, no GPU).
 - Smoke: app boots without throwing (thin; the real coverage is headless in later tiers).
 
-### M1 — Deterministic core + boundary
+### [x] M1 — Deterministic core + boundary
 `rng.ts`, `types.ts`, `geometry/` toolkit, `debug/svgRenderer.ts`, and
 `stages/boundary.ts` (jittered organic outline). Developed entirely against the SVG
 renderer — no Babylon needed. Render the boundary as a ground patch in Babylon once the
@@ -182,7 +183,7 @@ data is right.
   band for given params.
 - **Golden:** SVG of N fixed seeds committed via `toMatchFileSnapshot`.
 
-### M2 — Roads
+### [x] M2 — Roads
 `stages/roads.ts`: primary Catmull-Rom street + perpendicular branch stubs as a graph.
 `roadMesher.ts` renders flat ribbons.
 
@@ -196,7 +197,7 @@ data is right.
 - **Mesher (headless):** `roadMesher` emits `GeometryData` with expected vertex/index
   counts, bbox within road extent, no NaNs.
 
-### M3 — Parcels & buildings  *(the "it's a village" moment)*
+### [x] M3 — Parcels & buildings  *(the "it's a village" moment)*
 `parcels.ts` subdivides the band along roads into lots; `buildings.ts` places house
 footprints oriented to their road, clustered by a density falloff. `buildingMesher.ts`
 extrudes and thin-instances them.
@@ -215,14 +216,14 @@ extrudes and thin-instances them.
 - **Mesher (headless):** thin-instance matrix count == building count; per-footprint
   vertex counts; bounds match model; consistent winding/normals; no NaNs.
 
-### M4 — Road network (multiple primaries + secondary spokes)
+### [x] M4 — Road network (multiple primaries + secondary spokes)
 Replace the single main street with a small **road hierarchy** planarized into a real
 graph, so the village reads as a connected town rather than one street.
 
 **Scope:**
-- **Primary roads (2–3):** several Catmull-Rom through-roads at varied angles, each between
-  two inset-boundary crossings, biased to pass near a shared **core** (optional small
-  plaza). Wider than secondaries.
+- **Primary roads (2–3):** a curved trunk plus offset, roughly parallel cross streets,
+  each between two inset-boundary crossings. Wider than secondaries; the offsets create
+  loose grids and ordinary junctions rather than a single central convergence.
 - **Secondary roads & lanes:** shorter connectors that link primaries to one another
   (forming loops/blocks) plus lanes that stub off for extra frontage. Medium/narrow widths.
 - **Planarization:** compute pairwise edge crossings and split edges at them, inserting
@@ -246,7 +247,7 @@ lining more frontage.
 - **Golden:** SVG snapshots.
 - **Mesher (headless):** road `GeometryData` counts/bounds; per-class widths honored.
 
-### M5 — Approach roads (village entrances)
+### [ ] M5 — Approach roads (village entrances)
 Extend the primaries out to the **map edge** so the village connects to the surrounding
 country — the roads you actually arrive on.
 
@@ -271,7 +272,7 @@ countryside margin around the village.
 - **Framing:** camera frames `mapBounds` (contains village boundary + margin).
 - **Determinism + golden.**
 
-### M6 — Rivers (flowing structural water)
+### [ ] M6 — Rivers (flowing structural water)
 A river behaves *almost like a road* — a meandering water-spine — but it's water, so it
 constrains the settlement rather than serving it.
 
@@ -310,7 +311,7 @@ generation late — see the note below).
 > least a river channel) forward ahead of the M4 road-network work so roads are water-aware
 > from the start.
 
-### M7 — Standing water & coastline (ponds, lakes, ocean border)
+### [ ] M7 — Standing water & coastline (ponds, lakes, ocean border)
 Closed water bodies, escalating to a large body that becomes a **border**.
 
 **Scope:**
@@ -334,7 +335,7 @@ hugging the shore; ponds dotting the interior.
   dock road terminates at the shore.
 - **Determinism + golden + mesher.**
 
-### M8 — Decorative terrain (fields & woodlands)
+### [ ] M8 — Decorative terrain (fields & woodlands)
 Now purely cosmetic: `terrain.ts` fills the countryside inside `mapBounds` that is left over
 after water + settlement. Farmland fields as relaxed Voronoi patches (wire in `d3-delaunay`
 here), woodlands as thin-instanced trees under a density mask, grass. `groundMesher.ts`
@@ -353,7 +354,7 @@ fill the hills.
 - **Mesher (headless):** ground `GeometryData` covers bounds; zone material assignment
   matches cell types; tree instance count matches sampled points.
 
-### M9 — Interactivity & polish
+### [ ] M9 — Interactivity & polish
 Seed input + regenerate; a few param sliders (village size, density, "has river");
 click-to-inspect via `pickAsync`; screenshot export via `captureScreenshot`; full param
 set encoded in the shareable URL; perspective-camera toggle.
