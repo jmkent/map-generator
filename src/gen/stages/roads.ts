@@ -9,7 +9,7 @@
 // existing corridors. The soup of segments is handed to `planarize`, which splits
 // every crossing into a shared node.
 
-import type { Polygon, RoadNetwork, Vec2 } from "../types";
+import type { Polygon, RoadClass, RoadNetwork, Vec2 } from "../types";
 import type { Rng } from "../rng";
 import { centroid, contains, distanceToBoundary, inset, intersectRayPolygon } from "../geometry/polygon";
 import { catmullRom } from "../geometry/catmullRom";
@@ -20,16 +20,16 @@ export interface RoadParams {
     boundary: Polygon;
     radius: number;
     /** Target number of primary roads; generation varies this slightly by seed. */
-    primaryCount: number;
+    primaryTarget: number;
     samples: number;
     /** Trunk-road anchor jitter, world units. */
     jitter: number;
     /** Margin keeping roads inside the boundary, world units. */
     inset: number;
     /** Soft growth budget for secondary connectors. */
-    secondaryCount: number;
+    secondaryBudget: number;
     /** Soft growth budget for lane branches. */
-    laneCount: number;
+    laneBudget: number;
     primaryWidth: number;
     secondaryWidth: number;
     laneWidth: number;
@@ -38,9 +38,36 @@ export interface RoadParams {
 }
 
 const MIN_EDGE_LEN = 1e-3;
+const MIN_LANE_LOTS = 2;
+
+interface RoadGenerationContext {
+    rng: Rng;
+    safeArea: Polygon;
+    radius: number;
+    frontage: number;
+    junctionSpacing: number;
+    jitter: number;
+    samples: number;
+}
+
+interface Route {
+    kind: RoadClass;
+    points: Vec2[];
+}
+
+interface LaneCandidate {
+    anchor: Vec2;
+    points: Vec2[];
+}
+
+interface SecondaryConnector {
+    a: Vec2;
+    b: Vec2;
+    points: Vec2[];
+}
 
 export function generateRoads(rng: Rng, params: RoadParams): RoadNetwork {
-    const { boundary, radius, primaryCount, samples, jitter, inset: margin } = params;
+    const { boundary, radius, primaryTarget, samples, jitter, inset: margin } = params;
     const center = centroid(boundary);
     const safeArea = inset(boundary, margin);
 
@@ -56,22 +83,32 @@ export function generateRoads(rng: Rng, params: RoadParams): RoadNetwork {
         }
     };
 
+    const primaryAnchorSpacing = Math.max(params.frontage * 2.5, radius * 0.18);
+    const context: RoadGenerationContext = {
+        rng,
+        safeArea,
+        radius,
+        frontage: params.frontage,
+        junctionSpacing: primaryAnchorSpacing,
+        jitter,
+        samples,
+    };
+
     // Primary through-roads. Start with a trunk, then place mostly parallel cross
     // streets at separated points on it. This is a compact, intentionally loose
     // grid: irregular enough to avoid a city-block pattern, but still legible.
-    const primaries: Vec2[][] = [];
+    const primaryRoutes: Route[] = [];
     const primaryAnchors: Vec2[] = [];
-    const primaryAnchorSpacing = Math.max(params.frontage * 2.5, radius * 0.18);
     const baseAngle = rng.float(0, Math.PI);
     const trunkAxis: Vec2 = { x: Math.cos(baseAngle), y: Math.sin(baseAngle) };
-    const trunk = throughRoad(safeArea, trunkAnchor, trunkAxis, radius, jitter, samples, rng);
-    primaries.push(trunk);
+    const trunk = throughRoad(context, trunkAnchor, trunkAxis);
+    primaryRoutes.push({ kind: "primary", points: trunk });
     pushPolyline(trunk, "primary", params.primaryWidth);
 
     const crossAxisBase = perp(trunkAxis);
-    const primaryFloor = primaryCount >= 3 ? 3 : 1;
-    const primaryTarget = Math.max(primaryFloor, primaryCount + (primaryCount > 1 ? rng.int(-1, 1) : 0));
-    for (let p = 1; p < primaryTarget; p++) {
+    const primaryFloor = primaryTarget >= 3 ? 3 : 1;
+    const primaryRouteCount = Math.max(primaryFloor, primaryTarget + (primaryTarget > 1 ? rng.int(-1, 1) : 0));
+    for (let p = 1; p < primaryRouteCount; p++) {
         const pair = Math.ceil(p / 2);
         const side = p % 2 === 1 ? -1 : 1;
         const offset = rng.float(0.13, 0.25) + (pair - 1) * rng.float(0.08, 0.14);
@@ -87,65 +124,44 @@ export function generateRoads(rng: Rng, params: RoadParams): RoadNetwork {
         if (!anchor) continue;
         primaryAnchors.push(anchor);
         const axis = rotate(crossAxisBase, rng.float(-0.24, 0.24));
-        const poly = throughRoad(safeArea, anchor, axis, radius, jitter, samples, rng);
-        primaries.push(poly);
+        const poly = throughRoad(context, anchor, axis);
+        primaryRoutes.push({ kind: "primary", points: poly });
         pushPolyline(poly, "primary", params.primaryWidth);
     }
 
-    const routes = [...primaries];
-    const junctions = primaryJunctions(trunk, primaries.slice(1));
-    const junctionSpacing = primaryAnchorSpacing;
+    const routes = [...primaryRoutes];
+    const junctions = primaryJunctions(trunk, primaryRoutes.slice(1).map((route) => route.points));
 
     // The secondary budget is deliberately soft. Each accepted road is a curved,
     // two-ended connector that closes a block or reconnects an existing secondary
     // corridor; unsuitable slots remain empty instead of becoming orphan branches.
-    const secondaryBudget = Math.max(0, params.secondaryCount + rng.int(-1, 2));
+    const secondaryBudget = Math.max(0, params.secondaryBudget + rng.int(-1, 2));
     for (let i = 0; i < secondaryBudget; i++) {
-        const loop = findLoop(rng, safeArea, primaries, junctions, radius, params.frontage, junctionSpacing, samples);
-        if (loop) {
-            junctions.push(loop.a, loop.b);
-            routes.push(loop.points);
-            pushPolyline(loop.points, "secondary", params.secondaryWidth);
+        const connector = findSecondaryConnector(context, primaryRoutes.map((route) => route.points), junctions);
+        if (connector) {
+            junctions.push(connector.a, connector.b);
+            routes.push({ kind: "secondary", points: connector.points });
+            pushPolyline(connector.points, "secondary", params.secondaryWidth);
         }
     }
 
     // Lanes remain logical branches, rather than being used as a fixed grid fill.
-    const addBranches = (count: number, kind: SegmentInput["kind"], width: number, minLots: number): void => {
-        for (let i = 0; i < count; i++) {
-            const branch = findBranch(
-                rng,
-                safeArea,
-                routes,
-                junctions,
-                radius,
-                params.frontage,
-                junctionSpacing,
-                minLots,
-                jitter,
-                samples,
-            );
-            if (!branch) continue;
-            junctions.push(branch.anchor);
-            routes.push(branch.points);
-            pushPolyline(branch.points, kind, width);
-        }
-    };
-
-    addBranches(Math.max(0, params.laneCount + rng.int(-1, 1)), "lane", params.laneWidth, 2);
+    // They host on primary or secondary routes only, never on another lane.
+    const laneBudget = Math.max(0, params.laneBudget + rng.int(-1, 1));
+    for (let i = 0; i < laneBudget; i++) {
+        const lane = findLaneBranch(context, routes, junctions);
+        if (!lane) continue;
+        junctions.push(lane.anchor);
+        routes.push({ kind: "lane", points: lane.points });
+        pushPolyline(lane.points, "lane", params.laneWidth);
+    }
 
     return planarize(segments);
 }
 
 /** Create a subtly bent through-road while keeping its endpoints on the inset boundary. */
-function throughRoad(
-    safeArea: Polygon,
-    anchor: Vec2,
-    axis: Vec2,
-    radius: number,
-    jitter: number,
-    samples: number,
-    rng: Rng,
-): Vec2[] {
+function throughRoad(context: RoadGenerationContext, anchor: Vec2, axis: Vec2): Vec2[] {
+    const { safeArea, radius, jitter, samples, rng } = context;
     const forward = normalize(axis);
     const endA = intersectRayPolygon(safeArea, anchor, forward)?.point ?? add(anchor, scale(forward, radius * 0.5));
     const endB = intersectRayPolygon(safeArea, anchor, scale(forward, -1))?.point ?? sub(anchor, scale(forward, radius * 0.5));
@@ -160,30 +176,15 @@ function throughRoad(
     return curved.every((p) => insideOrOn(safeArea, p)) ? curved : dedupe(catmullRom([endA, anchor, endB], samples));
 }
 
-interface Branch {
-    anchor: Vec2;
-    points: Vec2[];
-}
-
-interface Loop {
-    a: Vec2;
-    b: Vec2;
-    points: Vec2[];
-}
-
-function findLoop(
-    rng: Rng,
-    safeArea: Polygon,
+function findSecondaryConnector(
+    context: RoadGenerationContext,
     primaryRoutes: readonly Vec2[][],
     junctions: readonly Vec2[],
-    radius: number,
-    frontage: number,
-    junctionSpacing: number,
-    samples: number,
-): Loop | null {
+): SecondaryConnector | null {
+    const { rng, safeArea, radius, frontage, junctionSpacing, samples } = context;
     if (primaryRoutes.length < 2) return null;
     const minLength = frontage * 2.5;
-    const tryPair = (first: Vec2[], second: Vec2[], aFraction: number, bFraction: number): Loop | null => {
+    const tryPair = (first: Vec2[], second: Vec2[], aFraction: number, bFraction: number): SecondaryConnector | null => {
         const a = pointAtFraction(first, aFraction);
         const b = pointAtFraction(second, bFraction);
         const span = dist(a, b);
@@ -219,22 +220,15 @@ function findLoop(
     return null;
 }
 
-function findBranch(
-    rng: Rng,
-    safeArea: Polygon,
-    routes: readonly Vec2[][],
-    junctions: readonly Vec2[],
-    radius: number,
-    frontage: number,
-    junctionSpacing: number,
-    minLots: number,
-    jitter: number,
-    samples: number,
-): Branch | null {
-    const minLength = frontage * minLots;
+function findLaneBranch(context: RoadGenerationContext, routes: readonly Route[], junctions: readonly Vec2[]): LaneCandidate | null {
+    const { rng, safeArea, radius, frontage, junctionSpacing, jitter, samples } = context;
+    const hostRoutes = routes.filter((route) => route.kind === "primary" || route.kind === "secondary");
+    if (hostRoutes.length === 0) return null;
+
+    const minLength = frontage * MIN_LANE_LOTS;
     const roadSpacing = Math.max(frontage * 1.35, radius * 0.1);
     for (let attempt = 0; attempt < 12; attempt++) {
-        const host = routes[rng.int(0, routes.length - 1)];
+        const host = hostRoutes[rng.int(0, hostRoutes.length - 1)].points;
         const fraction = rng.float(0.18, 0.82);
         const anchor = pointAtFraction(host, fraction);
         if (junctions.some((other) => dist(anchor, other) < junctionSpacing)) continue;
@@ -252,7 +246,7 @@ function findBranch(
         );
         const points = dedupe(catmullRom([anchor, control, tip], samples));
         if (!points.every((point) => insideOrOn(safeArea, point))) continue;
-        if (!hasConnectorClearance(points, [anchor], routes, roadSpacing)) continue;
+        if (!hasBranchClearance(points, [anchor], routes.map((route) => route.points), roadSpacing)) continue;
         return { anchor, points };
     }
     return null;
@@ -275,17 +269,16 @@ function primaryJunctions(trunk: Vec2[], crosses: readonly Vec2[][]): Vec2[] {
     return junctions;
 }
 
-function hasConnectorClearance(
+function hasBranchClearance(
     points: readonly Vec2[],
     anchors: readonly Vec2[],
     routes: readonly Vec2[][],
     minSpacing: number,
-    hostRoutes: readonly Vec2[][] = [],
 ): boolean {
     for (const point of points) {
-        // Near an endpoint, a connector intentionally shares its host corridor.
+        // Near its anchor, a branch intentionally shares its host corridor.
         if (anchors.some((anchor) => dist(point, anchor) <= minSpacing)) continue;
-        if (routes.some((route) => !hostRoutes.includes(route) && distanceToPolyline(point, route) < minSpacing)) return false;
+        if (routes.some((route) => distanceToPolyline(point, route) < minSpacing)) return false;
     }
     return true;
 }

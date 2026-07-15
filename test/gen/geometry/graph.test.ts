@@ -77,4 +77,25 @@ describe("roadChains", () => {
         expect(chains).toHaveLength(1);
         expect(chains[0].points).toHaveLength(4);
     });
+
+    it("stops a chain at a degree-2 road-class transition", () => {
+        const net = planarize([
+            { a: { x: 0, y: 0 }, b: { x: 1, y: 0 }, kind: "primary", width: 3 },
+            { a: { x: 1, y: 0 }, b: { x: 2, y: 0 }, kind: "lane", width: 2 },
+        ]);
+
+        expect(roadChains(net)).toEqual([
+            { points: [{ x: 0, y: 0 }, { x: 1, y: 0 }], kind: "primary", width: 3 },
+            { points: [{ x: 1, y: 0 }, { x: 2, y: 0 }], kind: "lane", width: 2 },
+        ]);
+
+        const widthTransition = planarize([
+            { a: { x: 0, y: 0 }, b: { x: 1, y: 0 }, kind: "primary", width: 3 },
+            { a: { x: 1, y: 0 }, b: { x: 2, y: 0 }, kind: "primary", width: 4 },
+        ]);
+        expect(roadChains(widthTransition).map(({ kind, width }) => ({ kind, width }))).toEqual([
+            { kind: "primary", width: 3 },
+            { kind: "primary", width: 4 },
+        ]);
+    });
 });

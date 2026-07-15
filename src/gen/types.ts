@@ -44,18 +44,18 @@ export interface VillageParams {
     boundaryPoints: number;
     /** Radial variation of the boundary, 0 (circle) .. ~0.5 (very lumpy). */
     boundaryIrregularity: number;
-    /** Number of primary through-roads in the settlement's loose grid. */
-    primaryCount: number;
-    /** Polyline samples per Catmull–Rom segment of a primary road. */
+    /** Target number of primary through-roads; the final count varies by seed. */
+    primaryRoadTarget: number;
+    /** Polyline samples per Catmull–Rom segment of a generated road. */
     roadSamples: number;
-    /** Trunk-road anchor jitter away from the boundary center, fraction of radius. */
+    /** Maximum seeded anchor and curve variation, fraction of radius. */
     roadJitter: number;
     /** Margin keeping roads inside the boundary, fraction of radius. */
     roadInset: number;
-    /** Number of secondary connectors linking primaries into loops. */
-    secondaryCount: number;
-    /** Number of lane stubs off primaries for extra frontage. */
-    laneCount: number;
+    /** Soft budget for secondary connectors linking primary routes into blocks. */
+    secondaryRoadBudget: number;
+    /** Soft budget for frontage lanes off primary or secondary routes. */
+    laneRoadBudget: number;
     /** Width of primary roads, world units. */
     primaryRoadWidth: number;
     /** Width of secondary roads, world units. */

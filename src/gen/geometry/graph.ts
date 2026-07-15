@@ -104,9 +104,9 @@ export interface Chain {
 
 /**
  * Extract maximal polylines from a road graph: each runs between junction/endpoint
- * nodes (degree ≠ 2), threading through degree-2 nodes. Class/width come from the
- * chain's first edge (uniform along a chain, since class changes happen at
- * junctions). Order is deterministic.
+ * nodes (degree ≠ 2), threading through degree-2 nodes. A class or width change
+ * is also a chain boundary, so consumers never apply one road's frontage rules to
+ * a differently classified continuation. Order is deterministic.
  */
 export function roadChains(net: RoadNetwork): Chain[] {
     const posById = new Map(net.nodes.map((n) => [n.id, n.pos]));
@@ -116,7 +116,12 @@ export function roadChains(net: RoadNetwork): Chain[] {
         adj.get(e.a)!.push({ to: e.b, edge: ei });
         adj.get(e.b)!.push({ to: e.a, edge: ei });
     });
-    const degree = (id: number): number => adj.get(id)!.length;
+    const isChainBoundary = (id: number): boolean => {
+        const connections = adj.get(id)!;
+        if (connections.length !== 2) return true;
+        const [first, second] = connections.map((connection) => net.edges[connection.edge]);
+        return first.kind !== second.kind || first.width !== second.width;
+    };
     const used = new Set<number>();
     const chains: Chain[] = [];
 
@@ -126,7 +131,7 @@ export function roadChains(net: RoadNetwork): Chain[] {
         const { width, kind } = net.edges[first.edge];
         let cur = first.to;
         let viaEdge = first.edge;
-        while (degree(cur) === 2) {
+        while (!isChainBoundary(cur)) {
             const next = adj.get(cur)!.find((c) => c.edge !== viaEdge && !used.has(c.edge));
             if (!next) break;
             used.add(next.edge);
@@ -138,7 +143,7 @@ export function roadChains(net: RoadNetwork): Chain[] {
     };
 
     const starts = net.nodes
-        .filter((n) => degree(n.id) !== 2)
+        .filter((n) => isChainBoundary(n.id))
         .map((n) => n.id)
         .sort((a, b) => a - b);
     for (const start of starts) {
