@@ -61,8 +61,11 @@ export function generateParcels(rng: Rng, params: ParcelParams): Parcel[] {
                 if (accepted.some((p) => convexOverlap(lot, p.polygon, 0.05))) continue;
 
                 // Center-weighted acceptance: p ~ 1 at the core, tapering outward.
+                // The hierarchy matters too: wider primary streets support the
+                // densest frontage, while lanes remain a sparse extension.
                 const dNorm = dist(centroid(lot), center) / radius;
-                const p = clamp(1.05 - dNorm * dNorm, 0.15, 1) * density;
+                const hierarchyDensity = line.kind === "primary" ? 1 : line.kind === "secondary" ? 0.82 : 0.65;
+                const p = clamp(1.05 - dNorm * dNorm, 0.15, 1) * density * hierarchyDensity;
                 if (rng.next() >= p) continue;
 
                 accepted.push({ polygon: lot });

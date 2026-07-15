@@ -16,7 +16,8 @@ Generation is a **pure, deterministic function** (`src/gen/`, no Babylon) that
 produces a plain `MapModel`, which is then consumed by either the Babylon
 renderer (`src/render/`) or a headless SVG renderer (`src/debug/`) used for
 debugging and golden tests. See [PLAN.md](./PLAN.md) for the full design,
-milestones, and per-milestone test plans.
+milestones, and per-milestone test plans. See [ARCHITECTURE.md](./ARCHITECTURE.md)
+for the implemented generation phases and their design rules.
 
 ```
 seed + params ─▶ gen/ (pure) ─▶ MapModel ─┬─▶ render/ (Babylon) ─▶ canvas

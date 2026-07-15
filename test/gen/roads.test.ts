@@ -4,7 +4,7 @@ import type { MapModel, RoadNetwork } from "../../src/gen/types";
 import { generateVillage, DEFAULT_PARAMS } from "../../src/gen/pipeline";
 import { createRng } from "../../src/gen/rng";
 import { generateBoundary } from "../../src/gen/stages/boundary";
-import { componentCount } from "../../src/gen/geometry/graph";
+import { componentCount, roadChains } from "../../src/gen/geometry/graph";
 import { contains, distanceToBoundary } from "../../src/gen/geometry/polygon";
 
 const SEEDS = ["village", "hamlet", "riverford", "0", "zzz", "mistmoor"];
@@ -39,6 +39,12 @@ function crossesInterior(a1: Pt, a2: Pt, b1: Pt, b2: Pt): boolean {
     return ti > EPS && ti < 1 - EPS && tj > EPS && tj < 1 - EPS;
 }
 
+function chainLength(points: Pt[]): number {
+    let total = 0;
+    for (let i = 1; i < points.length; i++) total += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+    return total;
+}
+
 describe("road network invariants", () => {
     for (const seed of SEEDS) {
         it(`produces a connected planar network for seed "${seed}"`, () => {
@@ -58,7 +64,6 @@ describe("road network invariants", () => {
 
             // Single connected component.
             expect(componentCount(net)).toBe(1);
-
             // Planar: no two edges that don't share a node cross in their interiors.
             for (let i = 0; i < net.edges.length; i++) {
                 for (let j = i + 1; j < net.edges.length; j++) {
@@ -76,6 +81,24 @@ describe("road network invariants", () => {
             expect(junctionDegrees.length).toBeGreaterThanOrEqual(2);
             expect(Math.max(...junctionDegrees)).toBeLessThanOrEqual(5);
 
+            // Junctions reserve enough road frontage for multiple lots between
+            // them; otherwise adding a branch only creates unusable slivers.
+            const junctions = net.nodes.filter((node) => degrees(net).get(node.id)! >= 3);
+            for (let i = 0; i < junctions.length; i++) {
+                for (let j = i + 1; j < junctions.length; j++) {
+                    expect(Math.hypot(junctions[i].pos.x - junctions[j].pos.x, junctions[i].pos.y - junctions[j].pos.y)).toBeGreaterThanOrEqual(
+                        DEFAULT_PARAMS.lotWidth * 2,
+                    );
+                }
+            }
+
+            // Lanes are dead-end frontage roads, so each must be long enough
+            // for its intended lots. Secondary loop edges may be split at their
+            // junctions during planarization and are therefore not tested alone.
+            for (const chain of roadChains(net)) {
+                if (chain.kind === "lane") expect(chainLength(chain.points)).toBeGreaterThanOrEqual(DEFAULT_PARAMS.lotWidth * 1.5);
+            }
+
             // Every node lies inside the boundary (tiny tolerance for FP).
             for (const n of net.nodes) {
                 const inside = contains(model.boundary, n.pos) || distanceToBoundary(model.boundary, n.pos) < 1e-6;
@@ -83,6 +106,23 @@ describe("road network invariants", () => {
             }
         });
     }
+});
+
+it('can close local blocks with secondary connectors for seed "waxony"', () => {
+    const net = generateVillage("waxony").roads;
+    expect(net.edges.length - net.nodes.length + componentCount(net)).toBeGreaterThanOrEqual(1);
+});
+
+it('keeps secondary roads connected at both ends for seed "tarry"', () => {
+    const net = generateVillage("tarry").roads;
+    const degree = degrees(net);
+    const secondaryEdges = net.edges.filter((edge) => edge.kind === "secondary");
+    expect(secondaryEdges.length).toBeGreaterThan(0);
+    for (const edge of secondaryEdges) {
+        expect(degree.get(edge.a)!).toBeGreaterThanOrEqual(2);
+        expect(degree.get(edge.b)!).toBeGreaterThanOrEqual(2);
+    }
+    expect(net.edges.length - net.nodes.length + componentCount(net)).toBeGreaterThanOrEqual(1);
 });
 
 describe("road determinism and stream isolation", () => {

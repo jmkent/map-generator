@@ -225,7 +225,8 @@ graph, so the village reads as a connected town rather than one street.
   each between two inset-boundary crossings. Wider than secondaries; the offsets create
   loose grids and ordinary junctions rather than a single central convergence.
 - **Secondary roads & lanes:** shorter connectors that link primaries to one another
-  (forming loops/blocks) plus lanes that stub off for extra frontage. Medium/narrow widths.
+  (forming loops/blocks) plus lanes that stub off for extra frontage. Each branch is
+  long enough for several lots and kept clear of nearby junctions/corridors. Medium/narrow widths.
 - **Planarization:** compute pairwise edge crossings and split edges at them, inserting
   shared junction nodes, so crossing roads actually meet. New shared util
   `geometry/graph.ts` (segment intersection, edge splitting, near-coincident node merge).

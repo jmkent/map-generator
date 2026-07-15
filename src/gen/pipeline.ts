@@ -10,15 +10,15 @@ import { generateBuildings } from "./stages/buildings";
 import { bounds as polygonBounds } from "./geometry/polygon";
 
 export const DEFAULT_PARAMS: VillageParams = {
-    radius: 90,
+    radius: 125,
     boundaryPoints: 36,
     boundaryIrregularity: 0.18,
     primaryCount: 3,
     roadSamples: 14,
     roadJitter: 0.08,
     roadInset: 0.1,
-    secondaryCount: 4,
-    laneCount: 6,
+    secondaryCount: 5,
+    laneCount: 2,
     primaryRoadWidth: 3.5,
     secondaryRoadWidth: 2.5,
     laneRoadWidth: 1.8,
@@ -54,6 +54,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         primaryWidth: p.primaryRoadWidth,
         secondaryWidth: p.secondaryRoadWidth,
         laneWidth: p.laneRoadWidth,
+        frontage: p.lotWidth,
     });
 
     const parcels = generateParcels(rng.stream("parcels"), {
