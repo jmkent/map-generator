@@ -35,14 +35,14 @@ This boundary is what makes "refine from there" cheap instead of a rewrite.
 ## 2. Confirmed decisions
 
 - **Geometry libs:** `d3-delaunay` approved for Voronoi/relaxation (fields, lot
-  subdivision). Wired in at **M4**, not before. `polygon-clipping` deferred until a
-  stage actually needs boolean ops. Hand-rolled primitives (bbox, inset, Poisson-disk)
-  for M0–M3.
+  subdivision). Wired in at **M6** (terrain), not before. `polygon-clipping` deferred until
+  a stage actually needs boolean ops. Everything through M5 (incl. road-graph
+  planarization) uses hand-rolled primitives (bbox, inset, SAT, segment intersection).
 - **Camera:** **near-orthographic** — `@babylonjs/lite` exposes no true orthographic
   projection, so a narrow FOV (~8°) viewed from a correspondingly large radius makes
   perspective divergence negligible, giving the flat, map-like watabou feel. Fixed tilt,
   controls locked, auto-framed to bounds. Widening the FOV yields a perspective "diorama"
-  toggle, deferred to **M5**.
+  toggle, deferred to **M7**.
 - **RNG:** seedable 32-bit PRNG (mulberry32/sfc32) with **named streams** — each stage's
   generator derived from `hash(masterSeed, streamName)` so adding/reordering a stage does
   not shift earlier stages' random sequences. Regressions stay local; untouched stages'
@@ -62,12 +62,14 @@ src/
     pipeline.ts            # generateVillage(seed, params): MapModel — orchestrator
     geometry/
       vec2.ts              # add/sub/scale/dot/normal/rotate/lerp
-      polygon.ts           # area, centroid, contains, inset/offset, bbox
+      polygon.ts           # area, centroid, contains, inset/offset, bbox, SAT overlap
+      catmullRom.ts        # centripetal spline through control points
+      graph.ts             # road-graph planarization: edge intersection + splitting
       sampling.ts          # weighted pick, poisson-disk, jitter
-      voronoi.ts           # d3-delaunay wrapper + Lloyd relaxation (M4)
+      voronoi.ts           # d3-delaunay wrapper + Lloyd relaxation (M6)
     stages/
       boundary.ts          # village extent polygon
-      roads.ts             # road graph: main street + branches
+      roads.ts             # road graph: primaries + secondaries/spokes + approaches
       parcels.ts           # subdivide buildable band into lots
       buildings.ts         # place clustered house footprints
       terrain.ts           # fields, forest, grass, optional river/water
@@ -96,14 +98,19 @@ Babylon into the module graph.
 
 ## 4. Techniques
 
-- **Roads:** main street = Catmull-Rom spline through 3–5 jittered control points; branch
-  stubs dropped along its normal at intervals. Stored as a **graph** (nodes + polyline
-  edges) so it can grow into real street networks later without a rewrite.
+- **Roads:** a small **hierarchy** stored as one planar **graph** (nodes + edges, each
+  edge classed `primary | secondary | lane | approach` with a per-class width). Primaries
+  are Catmull-Rom through-roads between inset-boundary crossings, biased through a shared
+  core; secondaries/lanes connect and stub off them for density; **approach** roads extend
+  primaries out to the map edge as entrances. Crossings are **planarized** — edges split at
+  intersections into shared junction nodes — so the network is genuinely connected and can
+  keep growing without a rewrite. (M2 shipped the single-primary + branch-stub subset;
+  M4–M5 generalize it.)
 - **Logical clumps:** **Poisson-disk sampling with a spatially-varying density function**
   (higher near roads/center, zero outside boundary). One primitive drives both house and
   tree clustering; the falloff function is the "clump" control.
 - **Terrain:** material-zoned ground; farmland fields as **Voronoi + Lloyd relaxation**
-  patches (M4); forests as thin-instanced trees seeded by the Poisson sampler under a
+  patches (M6); forests as thin-instanced trees seeded by the Poisson sampler under a
   forest density mask; optional river/water.
 - **Houses:** footprint polygon (rect with occasional L/T variation) → `inset` for wall
   thickness → extrude to a seeded height → optional roof prism. Thin-instanced via
@@ -123,6 +130,10 @@ Babylon into the module graph.
 ## 6. Milestones
 
 Each milestone is a shippable vertical slice. The village "clicks" visually at **M3**.
+
+> **Status:** M0–M3 are shipped. M4–M5 (below) deepen the road network into a real
+> multi-road town with off-map entrances *before* terrain. Terrain and interactivity were
+> renumbered to **M6–M7** to keep the list in build order.
 
 ### M0 — Scaffold & fixed-angle stage
 Strip the sandbox demo from `src/main.ts`. Stand up `Renderer` + a near-orthographic camera
@@ -190,12 +201,68 @@ extrudes and thin-instances them.
 - **Mesher (headless):** thin-instance matrix count == building count; per-footprint
   vertex counts; bounds match model; consistent winding/normals; no NaNs.
 
-### M4 — Terrain
-`terrain.ts`: farmland fields as relaxed Voronoi patches (wire in `d3-delaunay` here),
-grass, forest clumps (thin-instanced trees under a density mask), optional river/water.
-`groundMesher.ts` renders material-zoned ground.
+### M4 — Road network (multiple primaries + secondary spokes)
+Replace the single main street with a small **road hierarchy** planarized into a real
+graph, so the village reads as a connected town rather than one street.
 
-**Deliverable:** houses sit in a landscape.
+**Scope:**
+- **Primary roads (2–3):** several Catmull-Rom through-roads at varied angles, each between
+  two inset-boundary crossings, biased to pass near a shared **core** (optional small
+  plaza). Wider than secondaries.
+- **Secondary roads & lanes:** shorter connectors that link primaries to one another
+  (forming loops/blocks) plus lanes that stub off for extra frontage. Medium/narrow widths.
+- **Planarization:** compute pairwise edge crossings and split edges at them, inserting
+  shared junction nodes, so crossing roads actually meet. New shared util
+  `geometry/graph.ts` (segment intersection, edge splitting, near-coincident node merge).
+- **Model migration:** `RoadEdge.kind` becomes a class enum (`primary | secondary | lane`,
+  `approach` added in M5) with width per class. Generalize the polyline reconstruction in
+  `roads.ts`/`parcels.ts` from "the single main chain" to "every maximal chain per class".
+
+**Deliverable:** a denser, connected village — several roads crossing at junctions, houses
+lining more frontage.
+
+**Test plan:**
+- **Invariants:** graph connected; **planar** — no two edges cross except at a shared node;
+  primary count == param; every edge inside the boundary; no zero-length edges; junction
+  nodes have degree ≥ 3.
+- **Determinism + stream isolation:** road sub-model identical for a seed; unchanged by
+  boundary/parcel params.
+- **Parcels regression:** lots still non-overlapping and clear of the (denser) corridors;
+  lot count scales with total road length.
+- **Golden:** SVG snapshots.
+- **Mesher (headless):** road `GeometryData` counts/bounds; per-class widths honored.
+
+### M5 — Approach roads (village entrances)
+Extend the primaries out to the **map edge** so the village connects to the surrounding
+country — the roads you actually arrive on.
+
+**Scope:**
+- **Map extent:** introduce `mapBounds` — the village bounds expanded by a countryside
+  margin — as the world the village sits in. The camera frames `mapBounds`, not the tight
+  boundary. (This also gives terrain a countryside to fill in M6.)
+- **Entrances (2–4):** from selected primary endpoints, continue the road's tangent
+  outward, crossing the village boundary once, to a point on the `mapBounds` edge. Class
+  `approach` (primary width). Entrances are spread by angle; not every endpoint gets one.
+- Planarize approaches into the graph (one end is the primary's endpoint node, the other a
+  node on the map edge).
+
+**Deliverable:** a few roads leading off-map at entrances; camera reframed to show the
+countryside margin around the village.
+
+**Test plan:**
+- **Invariants:** each approach joins a primary endpoint to the map edge; its outer node
+  lies on the `mapBounds` edge (within eps); each approach crosses the village boundary
+  exactly once; graph stays connected; entrance count within `[min, max]`.
+- **Framing:** camera frames `mapBounds` (contains village boundary + margin).
+- **Determinism + golden.**
+
+### M6 — Terrain
+`terrain.ts`: the countryside inside `mapBounds` but outside the village fills with farmland
+fields as relaxed Voronoi patches (wire in `d3-delaunay` here), grass, forest clumps
+(thin-instanced trees under a density mask), optional river/water. `groundMesher.ts` renders
+material-zoned ground.
+
+**Deliverable:** houses sit in a landscape, roads run out through fields to the edge.
 
 **Test plan:**
 - **Voronoi wrapper:** cells partition the target region; relaxation converges (centroid
@@ -206,7 +273,7 @@ grass, forest clumps (thin-instanced trees under a density mask), optional river
 - **Mesher (headless):** ground `GeometryData` covers bounds; zone material assignment
   matches cell types; tree instance count matches sampled points.
 
-### M5 — Interactivity & polish
+### M7 — Interactivity & polish
 Seed input + regenerate; a few param sliders (village size, density, "has river");
 click-to-inspect via `pickAsync`; screenshot export via `captureScreenshot`; full param
 set encoded in the shareable URL; perspective-camera toggle.
