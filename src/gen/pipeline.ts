@@ -5,6 +5,8 @@ import type { MapModel, VillageParams } from "./types";
 import { createRng } from "./rng";
 import { generateBoundary } from "./stages/boundary";
 import { generateRoads } from "./stages/roads";
+import { generateParcels } from "./stages/parcels";
+import { generateBuildings } from "./stages/buildings";
 import { bounds as polygonBounds } from "./geometry/polygon";
 
 export const DEFAULT_PARAMS: VillageParams = {
@@ -18,6 +20,14 @@ export const DEFAULT_PARAMS: VillageParams = {
     branchCount: 6,
     mainRoadWidth: 3.5,
     branchRoadWidth: 2,
+    lotWidth: 9,
+    lotDepth: 11,
+    lotSetback: 1.5,
+    lotWidthJitter: 0.25,
+    buildingYard: 1.5,
+    buildingMinHeight: 3,
+    buildingMaxHeight: 6,
+    buildingDensity: 0.85,
 };
 
 export function generateVillage(seed: string, params: Partial<VillageParams> = {}): MapModel {
@@ -42,11 +52,30 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         branchWidth: p.branchRoadWidth,
     });
 
+    const parcels = generateParcels(rng.stream("parcels"), {
+        boundary,
+        roads,
+        radius: p.radius,
+        lotWidth: p.lotWidth,
+        lotDepth: p.lotDepth,
+        lotSetback: p.lotSetback,
+        lotWidthJitter: p.lotWidthJitter,
+        density: p.buildingDensity,
+    });
+
+    const buildings = generateBuildings(rng.stream("buildings"), parcels, {
+        yard: p.buildingYard,
+        minHeight: p.buildingMinHeight,
+        maxHeight: p.buildingMaxHeight,
+    });
+
     return {
         seed,
         params: p,
         bounds: polygonBounds(boundary),
         boundary,
         roads,
+        parcels,
+        buildings,
     };
 }

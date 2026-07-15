@@ -36,11 +36,21 @@ export function renderModelSvg(model: MapModel, opts: SvgOptions = {}): string {
         return `  <line x1="${tx(a.x)}" y1="${ty(a.y)}" x2="${tx(b.x)}" y2="${ty(b.y)}" stroke="${color}" stroke-width="${round(e.width)}" stroke-linecap="round"/>`;
     });
 
+    const ring = (poly: { x: number; y: number }[]) => poly.map((p) => `${tx(p.x)},${ty(p.y)}`).join(" ");
+    const parcelPolys = model.parcels.map(
+        (p) => `  <polygon points="${ring(p.polygon)}" fill="none" stroke="#4a5568" stroke-width="0.4"/>`,
+    );
+    const buildingPolys = model.buildings.map(
+        (b) => `  <polygon points="${ring(b.footprint)}" fill="#b08d64" stroke="#5c4630" stroke-width="0.4"/>`,
+    );
+
     return [
         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`,
         `  <rect width="${w}" height="${h}" fill="#0c1016"/>`,
         `  <polygon points="${points}" fill="#276f2b" stroke="#e8ecf1" stroke-width="1" stroke-linejoin="round"/>`,
         ...roadLines,
+        ...parcelPolys,
+        ...buildingPolys,
         `</svg>`,
         ``,
     ].join("\n");

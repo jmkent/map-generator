@@ -169,6 +169,57 @@ export function inset(poly: Polygon, dist: number): Polygon {
     return result;
 }
 
+/** Build a CCW oriented rectangle centered at `center`, sized width×depth, with
+ *  its width axis rotated by `angle` (radians) in the generation plane. */
+export function orientedRect(center: Vec2, width: number, depth: number, angle: number): Polygon {
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    const hw = width / 2;
+    const hd = depth / 2;
+    const locals: Array<[number, number]> = [
+        [-hw, -hd],
+        [hw, -hd],
+        [hw, hd],
+        [-hw, hd],
+    ];
+    return locals.map(([lx, ly]) => ({ x: center.x + lx * c - ly * s, y: center.y + lx * s + ly * c }));
+}
+
+function projectOnto(poly: Polygon, axis: Vec2): [number, number] {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const p of poly) {
+        const d = p.x * axis.x + p.y * axis.y;
+        if (d < min) min = d;
+        if (d > max) max = d;
+    }
+    return [min, max];
+}
+
+/** True if any edge-normal of `a` separates `a` from `b` (a gap, or contact within eps). */
+function hasSeparatingAxis(a: Polygon, b: Polygon, eps: number): boolean {
+    const n = a.length;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+        const edge = sub(a[i], a[j]);
+        const len = Math.hypot(edge.x, edge.y);
+        if (len < 1e-12) continue;
+        const axis = { x: -edge.y / len, y: edge.x / len };
+        const [minA, maxA] = projectOnto(a, axis);
+        const [minB, maxB] = projectOnto(b, axis);
+        if (maxA <= minB + eps || maxB <= minA + eps) return true;
+    }
+    return false;
+}
+
+/**
+ * Do two convex polygons overlap by more than `eps` (separating-axis theorem)?
+ * Shared edges / touching corners count as non-overlapping, so tiled lots that
+ * abut along an edge are not reported as colliding.
+ */
+export function convexOverlap(a: Polygon, b: Polygon, eps = 1e-6): boolean {
+    return !hasSeparatingAxis(a, b, eps) && !hasSeparatingAxis(b, a, eps);
+}
+
 /**
  * Nearest forward intersection of a ray (origin + t·dir, t>0) with the polygon's
  * edges. Returns the hit point and its distance along the ray, or null if the

@@ -58,6 +58,44 @@ export interface VillageParams {
     mainRoadWidth: number;
     /** Width of branch stubs, world units. */
     branchRoadWidth: number;
+    /** Road-frontage width of a lot, world units. */
+    lotWidth: number;
+    /** Depth of a lot away from the road, world units. */
+    lotDepth: number;
+    /** Gap between a lot's front and the road edge, world units. */
+    lotSetback: number;
+    /** Random ± fraction applied to lot frontage width. */
+    lotWidthJitter: number;
+    /** Inset from a lot to its building footprint (yard), world units. */
+    buildingYard: number;
+    /** Building height range, world units. */
+    buildingMinHeight: number;
+    buildingMaxHeight: number;
+    /** Clump strength: 0 sparse, 1 dense core (scales lot acceptance). */
+    buildingDensity: number;
+}
+
+/** A buildable lot fronting a road. */
+export interface Parcel {
+    /** Lot outline (CCW quad). */
+    polygon: Polygon;
+}
+
+/** A house: a road-oriented box footprint plus a height. Stored structurally so
+ *  the renderer can thin-instance it and tests can inspect the footprint. */
+export interface Building {
+    /** Footprint outline (CCW rectangle). */
+    footprint: Polygon;
+    /** Footprint center. */
+    center: Vec2;
+    /** Extent along the road frontage. */
+    width: number;
+    /** Extent perpendicular to the road. */
+    depth: number;
+    /** Yaw of the frontage axis in the generation plane, radians. */
+    angle: number;
+    /** Extrusion height. */
+    height: number;
 }
 
 /** Classification of a road edge. */
@@ -95,4 +133,6 @@ export interface MapModel {
     bounds: Bounds;
     boundary: Polygon;
     roads: RoadNetwork;
+    parcels: Parcel[];
+    buildings: Building[];
 }

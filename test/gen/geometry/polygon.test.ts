@@ -82,6 +82,48 @@ describe("isSimple", () => {
     });
 });
 
+describe("orientedRect", () => {
+    it("builds a CCW rectangle of the given size", () => {
+        const r = P.orientedRect({ x: 0, y: 0 }, 2, 4, 0);
+        expect(P.area(r)).toBeCloseTo(8, 10);
+        expect(P.isCCW(r)).toBe(true);
+        const b = P.bounds(r);
+        expect([b.minX, b.maxX, b.minY, b.maxY]).toEqual([-1, 1, -2, 2]);
+    });
+
+    it("rotates about its center", () => {
+        const r = P.orientedRect({ x: 5, y: 5 }, 2, 4, Math.PI / 2);
+        expect(P.centroid(r).x).toBeCloseTo(5, 10);
+        expect(P.centroid(r).y).toBeCloseTo(5, 10);
+        const b = P.bounds(r);
+        // 90° turn swaps the extents.
+        expect(b.maxX - b.minX).toBeCloseTo(4, 10);
+        expect(b.maxY - b.minY).toBeCloseTo(2, 10);
+    });
+});
+
+describe("convexOverlap", () => {
+    const unit = (ox: number, oy: number): typeof SQUARE =>
+        SQUARE.map((p) => ({ x: p.x + ox, y: p.y + oy }));
+
+    it("detects real area overlap", () => {
+        expect(P.convexOverlap(SQUARE, unit(0.5, 0.5))).toBe(true);
+    });
+
+    it("treats edge-sharing (touching) as non-overlap", () => {
+        expect(P.convexOverlap(SQUARE, unit(1, 0))).toBe(false);
+    });
+
+    it("returns false for a gap", () => {
+        expect(P.convexOverlap(SQUARE, unit(2, 0))).toBe(false);
+    });
+
+    it("handles rotated overlap", () => {
+        const diamond = P.orientedRect({ x: 1, y: 1 }, 1.2, 1.2, Math.PI / 4);
+        expect(P.convexOverlap(SQUARE, diamond)).toBe(true);
+    });
+});
+
 describe("intersectRayPolygon", () => {
     it("finds the nearest forward crossing from an interior origin", () => {
         const hit = P.intersectRayPolygon(SQUARE, { x: 0.5, y: 0.5 }, { x: 1, y: 0 });

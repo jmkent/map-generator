@@ -35,11 +35,13 @@ seed + params ─▶ gen/ (pure) ─▶ MapModel ─┬─▶ render/ (Babylon) 
 
 ## Status
 
-Implemented through **M2**: deterministic core (seeded RNG with named streams,
-geometry toolkit incl. Catmull–Rom splines), an organic village **boundary**, and
-a **road network** (curved main street + branch stubs) as a graph. All rendered
-as flat meshes in Babylon and as SVG in tests. Parcels/houses and terrain follow
-in M3–M4 (see [PLAN.md](./PLAN.md)).
+Implemented through **M3**: deterministic core (seeded RNG with named streams,
+geometry toolkit incl. Catmull–Rom splines and SAT overlap tests), an organic
+village **boundary**, a **road network** (curved main street + branch stubs), and
+**parcels + houses** — burgage lots lining the streets, each holding a
+road-oriented house clustered toward a denser core. Roads and boundary render as
+flat meshes; houses as thin-instanced boxes; everything also renders to SVG for
+tests. Terrain follows in M4 (see [PLAN.md](./PLAN.md)).
 
 ## Running
 

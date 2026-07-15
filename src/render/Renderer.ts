@@ -10,6 +10,9 @@ import {
     createStandardMaterial,
     createGridMaterial,
     createMeshFromData,
+    createBox,
+    addThinInstance,
+    mat4Compose,
     addToScene,
     registerScene,
     startEngine,
@@ -23,6 +26,7 @@ import { boundsCenter, boundsSize } from "../gen/types";
 import { createStageCamera, applyStageFraming } from "./camera";
 import { boundaryGeometry } from "./meshers/boundaryMesher";
 import { roadGeometry } from "./meshers/roadMesher";
+import { buildingInstances } from "./meshers/buildingMesher";
 
 export interface Renderer {
     engine: EngineContext;
@@ -80,6 +84,26 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
         roadMesh.material = roadMat;
         roadMesh.pickable = false;
         addToScene(scene, roadMesh);
+    }
+
+    // Houses as thin instances of a unit box.
+    const instances = buildingInstances(model.buildings);
+    if (instances.length > 0) {
+        const box = createBox(engine, 1);
+        const houseMat = createStandardMaterial();
+        houseMat.diffuseColor = [0.72, 0.6, 0.46];
+        houseMat.specularColor = [0.05, 0.05, 0.05];
+        box.material = houseMat;
+        for (const t of instances) {
+            const half = t.rotationY / 2;
+            const matrix = mat4Compose(
+                t.position[0], t.position[1], t.position[2],
+                0, Math.sin(half), 0, Math.cos(half),
+                t.scale[0], t.scale[1], t.scale[2],
+            );
+            addThinInstance(box, matrix);
+        }
+        addToScene(scene, box);
     }
 
     addToScene(scene, createHemisphericLight([0.2, 1, 0.3], 1.0));
