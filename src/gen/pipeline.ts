@@ -9,7 +9,7 @@ import { generateParcels } from "./stages/parcels";
 import { generateBuildings } from "./stages/buildings";
 import { generateLayout } from "./stages/layout";
 import { generateApproaches } from "./stages/approaches";
-import { generateRiver, integrateRiverCrossings } from "./stages/water";
+import { generateRiver, generateStandingWater, integrateRiverCrossings } from "./stages/water";
 import { bounds as polygonBounds, expandBounds } from "./geometry/polygon";
 
 export const DEFAULT_PARAMS: VillageParams = {
@@ -21,6 +21,7 @@ export const DEFAULT_PARAMS: VillageParams = {
     approachRoadMin: 2,
     approachRoadMax: 4,
     riverWidth: 9,
+    standingWaterKind: "auto",
     primaryRoadTarget: 3,
     roadSamples: 14,
     roadJitter: 0.08,
@@ -52,7 +53,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
 
     const bounds = polygonBounds(boundary);
     const mapBounds = expandBounds(bounds, p.radius * p.countrysideMargin);
-    const water = [generateRiver(rng.stream("water"), { mapBounds, radius: p.radius, width: p.riverWidth })];
+    const river = generateRiver(rng.stream("water"), { mapBounds, radius: p.radius, width: p.riverWidth });
     const settlement = generateLayout(rng.stream("layout"), {
         boundary,
         radius: p.radius,
@@ -82,7 +83,16 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         maxCount: p.approachRoadMax,
         width: p.primaryRoadWidth,
     });
-    const roads = integrateRiverCrossings(approachedRoads, water[0]);
+    const roads = integrateRiverCrossings(approachedRoads, river);
+    const standingWater = generateStandingWater(rng.stream("standing-water"), {
+        boundary,
+        mapBounds,
+        roads,
+        river,
+        radius: p.radius,
+        kind: p.standingWaterKind,
+    });
+    const water = [river, standingWater];
 
     const parcels = generateParcels(rng.stream("parcels"), {
         boundary,

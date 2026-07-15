@@ -142,8 +142,8 @@ Babylon into the module graph.
 
 Each milestone is a shippable vertical slice. The village "clicks" visually at **M3**.
 
-> **Status:** Milestones marked `[x]` are shipped. The remaining work starts with **M8**,
-> which adds structural ponds, lakes, and coastline;
+> **Status:** Milestones marked `[x]` are shipped. The remaining work starts with **M9**,
+> which adds decorative terrain;
 > **M7–M8** add *structural water* (rivers, then ponds/lakes/coast) which constrains the
 > layout; **M9** paints *decorative terrain* (fields/woodlands) on what is left; **M10** is
 > interactivity and polish. Structural layout and water precede decorative terrain
@@ -451,7 +451,7 @@ generation late — see the note below).
 > least a river channel) forward ahead of the M4 road-network work so roads are water-aware
 > from the start.
 
-### [ ] M8 — Standing water & coastline (ponds, lakes, ocean border)
+### [x] M8 — Standing water & coastline (ponds, lakes, ocean border)
 Closed water bodies, escalating to a large body that becomes a **border**.
 
 **Scope:**

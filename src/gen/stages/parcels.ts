@@ -11,7 +11,7 @@ import type { Rng } from "../rng";
 import { centroid, contains, convexOverlap, ensureCCW } from "../geometry/polygon";
 import { roadChains } from "../geometry/graph";
 import { add, dist, normalize, perp, scale, sub } from "../geometry/vec2";
-import { distanceToRiver } from "./water";
+import { distanceToWater } from "./water";
 
 export interface ParcelParams {
     boundary: Polygon;
@@ -39,8 +39,9 @@ export function generateParcels(rng: Rng, params: ParcelParams): Parcel[] {
         rect: edgeRect(posById.get(e.a)!, posById.get(e.b)!, e.width),
     }));
     for (const body of water) {
-        if (body.kind !== "river") continue;
-        for (let i = 1; i < body.path.length; i++) corridors.push({ rect: edgeRect(body.path[i - 1], body.path[i], body.width) });
+        if (body.kind === "river") {
+            for (let i = 1; i < body.path.length; i++) corridors.push({ rect: edgeRect(body.path[i - 1], body.path[i], body.width) });
+        }
     }
 
     const accepted: Parcel[] = [];
@@ -69,6 +70,7 @@ export function generateParcels(rng: Rng, params: ParcelParams): Parcel[] {
                 // Greens are convex just like lots, so SAT catches both the
                 // obvious corner case and a lot spanning across a common.
                 if (layout.civicSpaces.some((space) => convexOverlap(lot, space.polygon, 0))) continue;
+                if (water.some((body) => body.kind !== "river" && convexOverlap(lot, body.polygon, 0.05))) continue;
                 if (corridors.some((c) => convexOverlap(lot, c.rect, 0.05))) continue;
                 if (accepted.some((p) => convexOverlap(lot, p.polygon, 0.05))) continue;
 
@@ -78,9 +80,9 @@ export function generateParcels(rng: Rng, params: ParcelParams): Parcel[] {
                 const dNorm = dist(centroid(lot), center) / radius;
                 const hierarchyDensity = line.kind === "primary" ? 1 : line.kind === "secondary" ? 0.82 : 0.65;
                 const bankBias = water.reduce((best, body) => {
-                    if (body.kind !== "river") return best;
-                    const d = distanceToRiver(centroid(lot), body) - body.width / 2;
-                    return Math.max(best, clamp(1.22 - d / (radius * 0.42), 0.68, 1.22));
+                    const d = distanceToWater(centroid(lot), body);
+                    const strength = body.kind === "pond" ? 1.1 : body.kind === "lake" || body.kind === "coast" ? 1.28 : 1.22;
+                    return Math.max(best, clamp(strength - d / (radius * 0.42), 0.68, strength));
                 }, 1);
                 const p = clamp(1.05 - dNorm * dNorm, 0.15, 1) * density * hierarchyDensity * bankBias;
                 if (rng.next() >= p) continue;

@@ -77,6 +77,8 @@ export interface VillageParams {
     approachRoadMax: number;
     /** Width of the generated river channel, in world units. */
     riverWidth: number;
+    /** Standing-water form, or a deterministic seeded selection. */
+    standingWaterKind: "auto" | "pond" | "lake" | "coast";
     /** Target number of primary through-roads; the final count varies by seed. */
     primaryRoadTarget: number;
     /** Polyline samples per Catmull–Rom segment of a generated road. */
@@ -189,7 +191,13 @@ export interface River {
     width: number;
 }
 
-export type WaterBody = River;
+/** A closed water body. Coast polygons touch the outer map edge. */
+export interface StandingWater {
+    kind: "pond" | "lake" | "coast";
+    polygon: Polygon;
+}
+
+export type WaterBody = River | StandingWater;
 
 /**
  * The generated village. A plain, JSON-serializable value (no Babylon, no

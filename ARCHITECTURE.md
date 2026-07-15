@@ -1,6 +1,6 @@
 # Architecture
 
-This document explains how the village generator currently works through M7.
+This document explains how the village generator currently works through M8.
 It starts with the problem each phase solves, then names the techniques used in
 the code. Read `PLAN.md` for the roadmap; use this document to understand the
 implemented system and the rules that shape its output.
@@ -122,7 +122,21 @@ planar movement graph. Parcel generation treats each river segment as a hard
 corridor, and a bounded bank-proximity multiplier favors viable lots near,
 rather than in, the water.
 
-### 4. Choose a settlement form before growing roads
+### 4. Reserve standing water and coastline
+
+M8 extends `WaterBody` beyond the flowing river with closed `pond`, `lake`, and
+`coast` polygons. `standingWaterKind` can select one explicitly or use a seeded
+choice. Ponds and lakes are organic outlines placed only in open village land:
+they clear the river and existing road corridors before parcel generation sees
+them. Coast is a map-edge reserve on a side without an approach road, leaving
+the village on the land side while keeping an outer shoreline visible.
+
+All closed bodies are hard exclusions for lots and buildings. Their shorelines
+also add a modest density preference, strongest for lakes and coast. The water
+mesher fan-triangulates closed polygons in addition to its river ribbons, so
+the same `MapModel.water` data drives Babylon and SVG rendering.
+
+### 5. Choose a settlement form before growing roads
 
 A village is not always a loose grid. `src/gen/stages/layout.ts` resolves a
 named `SettlementProfile` from either the requested parameter or the dedicated
@@ -144,7 +158,7 @@ draw it as open space. This is the same broad idea as a
 [land-use reservation](https://en.wikipedia.org/wiki/Land-use_planning): decide
 which area has a non-building purpose before filling the remaining area.
 
-### 5. Make a road network that supports movement and homes
+### 6. Make a road network that supports movement and homes
 
 Roads are not independent random lines. They should let someone travel through
 the village, offer enough continuous frontage for lots, and create a denser
@@ -268,7 +282,7 @@ flanking routes and connectors that skirt the green; sparse forms use only the
 limited access they need. This keeps the shared graph and containment rules
 while allowing road growth to follow the selected morphology.
 
-### 6. Continue selected roads into the countryside
+### 7. Continue selected roads into the countryside
 
 The village boundary is not the edge of the world. M6 derives `mapBounds` by
 expanding the tight village bounds with a countryside margin. The renderer and
@@ -283,7 +297,7 @@ class: they render at primary width, remain part of the connected planar graph,
 and never create parcel frontage. The existing graph plus selected approaches is
 planarized again so this remains a single routing model.
 
-### 7. Turn useful street frontage into parcels
+### 8. Turn useful street frontage into parcels
 
 Houses need a reason to be where they are. `src/gen/stages/parcels.ts` uses
 continuous road chains as the source of frontage, then attempts lots on both
@@ -308,7 +322,7 @@ Lots carry their road-facing segment, serving road class, and a convex
 lots as well as today’s frontage strips. `track` chains are skipped entirely,
 so service paths cannot accidentally create implausible roadside housing.
 
-### 8. Put buildings in the lots
+### 9. Put buildings in the lots
 
 `src/gen/stages/buildings.ts` makes each house answer to a parcel rather than
 placing buildings independently across the map. It creates a seeded footprint
@@ -320,7 +334,7 @@ This parcel-led approach makes the visible settlement follow its streets: denser
 where useful frontage is available and more open where the road graph leaves
 space alone.
 
-### 9. Draw and inspect the completed model
+### 10. Draw and inspect the completed model
 
 The renderer's job is presentation, not generation. Bounds derived from the
 boundary frame the fixed-angle camera; the Babylon renderer converts model data

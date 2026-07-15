@@ -11,4 +11,12 @@ describe("waterGeometry", () => {
         expect([...geometry.positions].every(Number.isFinite)).toBe(true);
         expect([...geometry.normals].every(Number.isFinite)).toBe(true);
     });
+
+    it("fan-triangulates closed water bodies", () => {
+        const geometry = waterGeometry([{ kind: "pond", polygon: [{ x: 0, y: 0 }, { x: 6, y: 0 }, { x: 5, y: 4 }, { x: 1, y: 5 }] }]);
+
+        expect(geometry.positions).toHaveLength(15);
+        expect(geometry.indices).toHaveLength(12);
+        expect([...geometry.positions].every(Number.isFinite)).toBe(true);
+    });
 });
