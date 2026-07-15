@@ -8,13 +8,17 @@ import { generateRoads } from "./stages/roads";
 import { generateParcels } from "./stages/parcels";
 import { generateBuildings } from "./stages/buildings";
 import { generateLayout } from "./stages/layout";
-import { bounds as polygonBounds } from "./geometry/polygon";
+import { generateApproaches } from "./stages/approaches";
+import { bounds as polygonBounds, expandBounds } from "./geometry/polygon";
 
 export const DEFAULT_PARAMS: VillageParams = {
     radius: 125,
     boundaryPoints: 36,
     boundaryIrregularity: 0.18,
     settlementProfile: "auto",
+    countrysideMargin: 0.32,
+    approachRoadMin: 2,
+    approachRoadMax: 4,
     primaryRoadTarget: 3,
     roadSamples: 14,
     roadJitter: 0.08,
@@ -49,8 +53,10 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         radius: p.radius,
         profile: p.settlementProfile,
     });
+    const bounds = polygonBounds(boundary);
+    const mapBounds = expandBounds(bounds, p.radius * p.countrysideMargin);
 
-    const roads = generateRoads(rng.stream("roads"), {
+    const internalRoads = generateRoads(rng.stream("roads"), {
         boundary,
         radius: p.radius,
         primaryTarget: p.primaryRoadTarget,
@@ -64,6 +70,14 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         laneWidth: p.laneRoadWidth,
         frontage: p.lotWidth,
         layout: settlement,
+    });
+    const roads = generateApproaches(rng.stream("approaches"), {
+        boundary,
+        mapBounds,
+        roads: internalRoads,
+        minCount: p.approachRoadMin,
+        maxCount: p.approachRoadMax,
+        width: p.primaryRoadWidth,
     });
 
     const parcels = generateParcels(rng.stream("parcels"), {
@@ -87,7 +101,8 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
     return {
         seed,
         params: p,
-        bounds: polygonBounds(boundary),
+        bounds,
+        mapBounds,
         boundary,
         settlement,
         civicSpaces: settlement.civicSpaces,

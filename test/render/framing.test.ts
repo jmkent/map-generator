@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Bounds } from "../../src/gen/types";
-import { boundsRadius } from "../../src/gen/types";
+import { boundsSize } from "../../src/gen/types";
 import { frameBounds, stageNearFar } from "../../src/render/framing";
 
 const SQUARE: Bounds = { minX: -100, minY: -100, maxX: 100, maxY: 100 };
@@ -13,12 +13,18 @@ describe("frameBounds", () => {
         expect(target).toEqual([20, 0, 50]);
     });
 
-    it("matches the closed-form radius for a square viewport", () => {
+    it("matches the rectangle-fit radius for a square viewport", () => {
         const fovY = 0.14;
         const { radius } = frameBounds(SQUARE, { fovY, aspect: 1, margin: 1 });
-        // aspect 1 => fovX === fovY, so the limiting half-angle is fovY/2.
-        const expected = boundsRadius(SQUARE) / Math.sin(fovY / 2);
+        const { width, height } = boundsSize(SQUARE);
+        const expected = Math.max(width, height) / 2 / Math.tan(fovY / 2);
         expect(radius).toBeCloseTo(expected, 6);
+    });
+
+    it("uses the fixed camera tilt to avoid oversized circular framing", () => {
+        const flat = frameBounds(SQUARE, { fovY: 0.14, aspect: 16 / 9, margin: 1 });
+        const tilted = frameBounds(SQUARE, { fovY: 0.14, aspect: 16 / 9, margin: 1, alpha: -Math.PI / 2, beta: Math.PI / 4 });
+        expect(tilted.radius).toBeLessThan(flat.radius);
     });
 
     it("scales radius linearly with margin", () => {

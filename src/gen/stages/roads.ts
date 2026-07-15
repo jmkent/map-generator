@@ -187,10 +187,10 @@ function generateProfileRoads(rng: Rng, params: RoadParams): RoadNetwork {
     const profile = params.layout.profile;
 
     if (profile === "estate") {
-        // An estate has one legible access lane rather than an internal street
-        // network. It remains frontage-capable because the service yard still
-        // needs a small number of occupied lots.
-        addRoute(throughRoad(context, anchor, axis), "lane", params.laneWidth);
+        // An estate has one legible access route rather than an internal street
+        // network. Marking it primary lets M6 continue that route into the
+        // surrounding countryside.
+        addRoute(throughRoad(context, anchor, axis), "primary", params.primaryWidth);
         return planarize(segments);
     }
 
@@ -214,9 +214,9 @@ function generateProfileRoads(rng: Rng, params: RoadParams): RoadNetwork {
     const flankOffset = greenRadius + params.frontage * 0.8;
     const left = throughRoad(context, add(anchor, scale(normal, flankOffset)), axis);
     const right = throughRoad(context, add(anchor, scale(normal, -flankOffset)), axis);
-    // Rundling spokes are narrow, but support the clustered holdings facing the
-    // common. The closing paths remain tracks and therefore add no frontage.
-    addRoute(left, profile === "rundling" ? "lane" : "primary", profile === "rundling" ? params.laneWidth : params.primaryWidth);
+    // Rundling keeps one principal entrance beside narrower frontage paths.
+    // The closing paths remain tracks and therefore add no frontage.
+    addRoute(left, "primary", params.primaryWidth);
     addRoute(right, profile === "rundling" ? "lane" : "primary", profile === "rundling" ? params.laneWidth : params.primaryWidth);
     const connectorKind: RoadClass = profile === "rundling" ? "track" : "secondary";
     const connectorWidth = profile === "rundling" ? params.laneWidth * 0.7 : params.secondaryWidth;

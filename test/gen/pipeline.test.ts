@@ -50,4 +50,12 @@ describe("boundary invariants", () => {
         const model = generateVillage("village");
         expect(model.bounds).toEqual(bounds(model.boundary));
     });
+
+    it("expands village bounds into the map extent", () => {
+        const model = generateVillage("map-bounds");
+        expect(model.mapBounds.minX).toBeLessThan(model.bounds.minX);
+        expect(model.mapBounds.minY).toBeLessThan(model.bounds.minY);
+        expect(model.mapBounds.maxX).toBeGreaterThan(model.bounds.maxX);
+        expect(model.mapBounds.maxY).toBeGreaterThan(model.bounds.maxY);
+    });
 });

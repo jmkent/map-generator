@@ -99,10 +99,38 @@ describe("road network invariants", () => {
                 if (chain.kind === "lane") expect(chainLength(chain.points)).toBeGreaterThanOrEqual(DEFAULT_PARAMS.lotWidth * 1.5);
             }
 
-            // Every node lies inside the boundary (tiny tolerance for FP).
+            // M6 approaches may leave the village, but every graph node remains
+            // inside the surrounding map extent.
             for (const n of net.nodes) {
-                const inside = contains(model.boundary, n.pos) || distanceToBoundary(model.boundary, n.pos) < 1e-6;
+                const inside = insideBounds(model.mapBounds, n.pos);
                 expect(inside, `node ${n.id} at ${n.pos.x},${n.pos.y}`).toBe(true);
+            }
+        });
+    }
+});
+
+describe("approach roads", () => {
+    for (const seed of ["village", "hamlet", "riverford", "tarry"]) {
+        it(`connects ${seed} to map-edge entrances`, () => {
+            const model = generateVillage(seed, { settlementProfile: "haufendorf" });
+            const approaches = model.roads.edges.filter((edge) => edge.kind === "approach");
+            const positions = new Map(model.roads.nodes.map((node) => [node.id, node.pos]));
+            const degree = degrees(model.roads);
+
+            expect(approaches.length).toBeGreaterThanOrEqual(model.params.approachRoadMin);
+            expect(approaches.length).toBeLessThanOrEqual(model.params.approachRoadMax);
+            for (const edge of approaches) {
+                const a = positions.get(edge.a)!;
+                const b = positions.get(edge.b)!;
+                const outerId = onBounds(model.mapBounds, a) ? edge.a : edge.b;
+                const innerId = outerId === edge.a ? edge.b : edge.a;
+                const outer = positions.get(outerId)!;
+                const inner = positions.get(innerId)!;
+
+                expect(onBounds(model.mapBounds, outer)).toBe(true);
+                expect(model.roads.edges.some((other) => other.kind === "primary" && (other.a === innerId || other.b === innerId))).toBe(true);
+                expect(degree.get(outerId)).toBe(1);
+                expect(boundaryCrossings(model.boundary, inner, outer)).toBe(1);
             }
         });
     }
@@ -144,3 +172,36 @@ describe("road determinism and stream isolation", () => {
         expect(model.boundary).toEqual(boundary);
     });
 });
+
+function insideBounds(bounds: { minX: number; minY: number; maxX: number; maxY: number }, point: Pt): boolean {
+    const eps = 1e-6;
+    return point.x >= bounds.minX - eps && point.x <= bounds.maxX + eps && point.y >= bounds.minY - eps && point.y <= bounds.maxY + eps;
+}
+
+function onBounds(bounds: { minX: number; minY: number; maxX: number; maxY: number }, point: Pt): boolean {
+    const eps = 1e-6;
+    return Math.abs(point.x - bounds.minX) < eps || Math.abs(point.x - bounds.maxX) < eps || Math.abs(point.y - bounds.minY) < eps || Math.abs(point.y - bounds.maxY) < eps;
+}
+
+function boundaryCrossings(boundary: Pt[], a: Pt, b: Pt): number {
+    let crossings = 0;
+    for (let i = 0; i < boundary.length; i++) {
+        const hit = segmentIntersection(a, b, boundary[i], boundary[(i + 1) % boundary.length]);
+        if (hit && hit.t > 1e-6 && hit.t < 1 - 1e-6) crossings++;
+    }
+    return crossings;
+}
+
+function segmentIntersection(a: Pt, b: Pt, c: Pt, d: Pt): { t: number } | null {
+    const rx = b.x - a.x;
+    const ry = b.y - a.y;
+    const sx = d.x - c.x;
+    const sy = d.y - c.y;
+    const denom = rx * sy - ry * sx;
+    if (Math.abs(denom) < 1e-9) return null;
+    const qx = c.x - a.x;
+    const qy = c.y - a.y;
+    const t = (qx * sy - qy * sx) / denom;
+    const u = (qx * ry - qy * rx) / denom;
+    return t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9 ? { t } : null;
+}

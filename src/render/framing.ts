@@ -9,7 +9,7 @@
 // toggle without changing the framing contract.
 
 import type { Bounds } from "../gen/types";
-import { boundsCenter, boundsRadius } from "../gen/types";
+import { boundsCenter, boundsSize } from "../gen/types";
 
 /** Orbit angle around Y (Babylon ArcRotate convention). */
 export const STAGE_ALPHA = -Math.PI / 2;
@@ -18,7 +18,7 @@ export const STAGE_BETA = Math.PI / 4;
 /** Narrow vertical FOV (radians) approximating an orthographic projection. */
 export const STAGE_FOV = (8 * Math.PI) / 180;
 /** Extra breathing room around the framed bounds (>= 1). */
-export const STAGE_MARGIN = 1.1;
+export const STAGE_MARGIN = 1.04;
 
 export interface FramingParams {
     /** Vertical field of view, radians. */
@@ -27,6 +27,10 @@ export interface FramingParams {
     aspect: number;
     /** Extra breathing room multiplier (>= 1). */
     margin: number;
+    /** Orbit angle around the ground-plane normal, in radians. */
+    alpha?: number;
+    /** Elevation from the ground-plane normal, in radians. */
+    beta?: number;
 }
 
 export interface Framing {
@@ -39,9 +43,9 @@ export interface Framing {
 /**
  * Distance at which a bounds rectangle fits within a perspective frustum.
  *
- * Fits the bounds' enclosing circle (rotation-invariant, so it holds for any
- * orbit/elevation angle — slightly conservative for non-square viewports). The
- * limiting half-angle is the smaller of the vertical and horizontal half-FOVs.
+ * Projects the axis-aligned ground rectangle into the fixed camera axes, rather
+ * than fitting its enclosing circle. The old circle fit was safe but left a
+ * large unused border at the stage's fixed 45-degree tilt.
  */
 export function frameBounds(bounds: Bounds, params: FramingParams): Framing {
     const { fovY, aspect, margin } = params;
@@ -49,10 +53,19 @@ export function frameBounds(bounds: Bounds, params: FramingParams): Framing {
     if (!(aspect > 0)) throw new Error("frameBounds: aspect must be > 0");
 
     const c = boundsCenter(bounds);
-    const r = boundsRadius(bounds);
+    const { width, height } = boundsSize(bounds);
+    const alpha = params.alpha ?? 0;
+    const beta = params.beta ?? 0;
+    const halfWidth = width / 2;
+    const halfHeight = height / 2;
     const fovX = 2 * Math.atan(Math.tan(fovY / 2) * aspect);
-    const halfAngle = Math.min(fovY, fovX) / 2;
-    const radius = (r / Math.sin(halfAngle)) * margin;
+    const horizontalExtent = Math.abs(Math.sin(alpha)) * halfWidth + Math.abs(Math.cos(alpha)) * halfHeight;
+    const forwardExtent = Math.abs(Math.cos(alpha)) * halfWidth + Math.abs(Math.sin(alpha)) * halfHeight;
+    const verticalExtent = Math.abs(Math.cos(beta)) * forwardExtent;
+    // The near side of the ground rectangle sits closer to the camera. Add its
+    // forward extent before applying the perspective half-angle constraints.
+    const depthExtent = Math.abs(Math.sin(beta)) * forwardExtent;
+    const radius = (Math.max(horizontalExtent / Math.tan(fovX / 2), verticalExtent / Math.tan(fovY / 2)) + depthExtent) * margin;
 
     return { target: [c.x, 0, c.y], radius };
 }

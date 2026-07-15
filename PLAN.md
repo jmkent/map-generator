@@ -142,8 +142,8 @@ Babylon into the module graph.
 
 Each milestone is a shippable vertical slice. The village "clicks" visually at **M3**.
 
-> **Status:** Milestones marked `[x]` are shipped. The remaining work starts with **M6**,
-> which adds off-map entrances;
+> **Status:** Milestones marked `[x]` are shipped. The remaining work starts with **M7**,
+> which adds structural rivers;
 > **M7–M8** add *structural water* (rivers, then ponds/lakes/coast) which constrains the
 > layout; **M9** paints *decorative terrain* (fields/woodlands) on what is left; **M10** is
 > interactivity and polish. Structural layout and water precede decorative terrain
@@ -387,7 +387,7 @@ without requiring those names to become unrelated top-level algorithms.
 - **Golden:** add fixed-seed SVG snapshots for every explicit form, representative historical
   profiles where they materially alter geometry, and the `auto` selection path.
 
-### [ ] M6 — Approach roads (village entrances)
+### [x] M6 — Approach roads (village entrances)
 Extend the primaries out to the **map edge** so the village connects to the surrounding
 country — the roads you actually arrive on.
 

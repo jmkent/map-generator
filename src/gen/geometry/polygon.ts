@@ -78,6 +78,11 @@ export function bounds(poly: Polygon): Bounds {
     return { minX, minY, maxX, maxY };
 }
 
+/** Expand an axis-aligned bounds rectangle by a uniform world-space margin. */
+export function expandBounds(b: Bounds, margin: number): Bounds {
+    return { minX: b.minX - margin, minY: b.minY - margin, maxX: b.maxX + margin, maxY: b.maxY + margin };
+}
+
 /** Point-in-polygon via ray casting. Boundary points are not guaranteed either
  *  way — use {@link distanceToBoundary} when on-edge behavior matters. */
 export function contains(poly: Polygon, p: Vec2): boolean {

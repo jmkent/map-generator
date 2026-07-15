@@ -22,6 +22,7 @@ describe("settlement layout profiles", () => {
             expect(model.settlement.profile).toBe(profile);
             expect(model.roads.nodes.length).toBeGreaterThan(1);
             expect(model.roads.edges.length).toBeGreaterThan(0);
+            expect(model.roads.edges.filter((edge) => edge.kind === "approach").length).toBeGreaterThanOrEqual(model.params.approachRoadMin);
             expect(model.parcels.length).toBeGreaterThan(0);
             expect(model.buildings.length).toBeGreaterThan(0);
             expect(model.parcels.every((parcel) => parcel.roadKind !== "track")).toBe(true);

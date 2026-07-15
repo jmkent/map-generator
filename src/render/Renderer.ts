@@ -47,7 +47,7 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
     const scene = createSceneContext(engine);
     scene.clearColor = { r: 0.05, g: 0.06, b: 0.08, a: 1.0 };
 
-    const bounds = model.bounds;
+    const bounds = model.mapBounds;
     const center = boundsCenter(bounds);
     const { width, height } = boundsSize(bounds);
 

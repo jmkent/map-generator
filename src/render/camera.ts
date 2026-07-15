@@ -17,7 +17,7 @@ import {
 
 /** Create the fixed-angle stage camera, framed to `bounds` for the given aspect. */
 export function createStageCamera(bounds: Bounds, aspect: number): ArcRotateCamera {
-    const { target, radius } = frameBounds(bounds, { fovY: STAGE_FOV, aspect, margin: STAGE_MARGIN });
+    const { target, radius } = frameBounds(bounds, { fovY: STAGE_FOV, aspect, margin: STAGE_MARGIN, alpha: STAGE_ALPHA, beta: STAGE_BETA });
     const camera = createArcRotateCamera(STAGE_ALPHA, STAGE_BETA, radius, {
         x: target[0],
         y: target[1],
@@ -32,7 +32,7 @@ export function createStageCamera(bounds: Bounds, aspect: number): ArcRotateCame
 
 /** Re-frame an existing stage camera (e.g. after a viewport resize). */
 export function applyStageFraming(camera: ArcRotateCamera, bounds: Bounds, aspect: number): void {
-    const { target, radius } = frameBounds(bounds, { fovY: STAGE_FOV, aspect, margin: STAGE_MARGIN });
+    const { target, radius } = frameBounds(bounds, { fovY: STAGE_FOV, aspect, margin: STAGE_MARGIN, alpha: STAGE_ALPHA, beta: STAGE_BETA });
     camera.radius = radius;
     camera.target.x = target[0];
     camera.target.y = target[1];

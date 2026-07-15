@@ -15,7 +15,7 @@ const round = (n: number): number => Math.round(n * 100) / 100;
 
 export function renderModelSvg(model: MapModel, opts: SvgOptions = {}): string {
     const padding = opts.padding ?? 8;
-    const { bounds } = model;
+    const { mapBounds: bounds } = model;
     const { width, height } = boundsSize(bounds);
     const w = round(width + padding * 2);
     const h = round(height + padding * 2);
@@ -32,7 +32,7 @@ export function renderModelSvg(model: MapModel, opts: SvgOptions = {}): string {
         const a = posById.get(e.a);
         const b = posById.get(e.b);
         if (!a || !b) return "";
-        const color = e.kind === "primary" ? "#d9c48a" : e.kind === "secondary" ? "#c9b47a" : e.kind === "lane" ? "#b9a878" : "#718096";
+        const color = e.kind === "primary" || e.kind === "approach" ? "#d9c48a" : e.kind === "secondary" ? "#c9b47a" : e.kind === "lane" ? "#b9a878" : "#718096";
         return `  <line x1="${tx(a.x)}" y1="${ty(a.y)}" x2="${tx(b.x)}" y2="${ty(b.y)}" stroke="${color}" stroke-width="${round(e.width)}" stroke-linecap="round"/>`;
     });
 

@@ -69,6 +69,12 @@ export interface VillageParams {
     boundaryIrregularity: number;
     /** Historical-inspired settlement preset, or `auto` for a seed-selected profile. */
     settlementProfile: SettlementProfile;
+    /** Countryside border around the village boundary, as a fraction of radius. */
+    countrysideMargin: number;
+    /** Minimum number of primary roads that continue to the map edge. */
+    approachRoadMin: number;
+    /** Maximum number of primary roads that continue to the map edge. */
+    approachRoadMax: number;
     /** Target number of primary through-roads; the final count varies by seed. */
     primaryRoadTarget: number;
     /** Polyline samples per Catmull–Rom segment of a generated road. */
@@ -133,8 +139,8 @@ export interface Building {
     height: number;
 }
 
-/** Road class, widest to narrowest. `approach` (off-map entrances) arrives in M6. */
-export type RoadClass = "primary" | "secondary" | "lane" | "track";
+/** Road class, widest to narrowest. Approaches continue primary routes off-map. */
+export type RoadClass = "primary" | "secondary" | "lane" | "track" | "approach";
 
 export interface RoadClassPolicy {
     supportsFrontage: boolean;
@@ -145,6 +151,7 @@ export const ROAD_CLASS_POLICIES: Record<RoadClass, RoadClassPolicy> = {
     secondary: { supportsFrontage: true },
     lane: { supportsFrontage: true },
     track: { supportsFrontage: false },
+    approach: { supportsFrontage: false },
 };
 
 /** A junction/point in the road graph. */
@@ -177,7 +184,10 @@ export interface RoadNetwork {
 export interface MapModel {
     seed: string;
     params: VillageParams;
+    /** Tight bounds of the inhabited village boundary. */
     bounds: Bounds;
+    /** Village bounds expanded with countryside and off-map entrances. */
+    mapBounds: Bounds;
     boundary: Polygon;
     settlement: SettlementLayout;
     civicSpaces: CivicSpace[];
