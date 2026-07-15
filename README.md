@@ -41,8 +41,10 @@ village **boundary**, a **road network** (curved main street + branch stubs), an
 **parcels + houses** — burgage lots lining the streets, each holding a
 road-oriented house clustered toward a denser core. Roads and boundary render as
 flat meshes; houses as thin-instanced boxes; everything also renders to SVG for
-tests. A richer multi-road network with off-map entrances (M4–M5) and then terrain
-(M6) follow next (see [PLAN.md](./PLAN.md)).
+tests. Next up (see [PLAN.md](./PLAN.md)): a richer multi-road network with off-map
+entrances (M4–M5), then *structural water* — rivers, ponds, lakes, and coastlines that
+constrain the layout (M6–M7) — and finally *decorative terrain* like fields and woodlands
+(M8).
 
 ## Running
 
@@ -93,12 +95,15 @@ Techniques used or planned (see PLAN.md for where each lands):
   https://www.redblobgames.com/ (esp. [polygonal map generation](https://www.redblobgames.com/maps/mapgen4/) and [making maps with noise](https://www.redblobgames.com/maps/terrain-from-noise/))
 - Poisson-disk sampling (for clustered house/tree placement) —
   https://www.jasondavies.com/poisson-disc/ and Bridson's algorithm
-- Voronoi diagrams + Lloyd's relaxation (for fields/parcels, M6) —
+- Voronoi diagrams + Lloyd's relaxation (for fields/parcels, M8) —
   [`d3-delaunay`](https://github.com/d3/d3-delaunay)
 - Catmull–Rom splines (for organic road curves, M2) —
   https://en.wikipedia.org/wiki/Centripetal_Catmull%E2%80%93Rom_spline
 - Road-network generation + planar graph planarization (for the multi-road network, M4–M5) —
   https://en.wikipedia.org/wiki/Planar_graph and segment-intersection / arrangement methods
+- Structural water — rivers/lakes/coast as layout constraints (M6–M7) —
+  watabou's water-bearing generators (e.g. [village](https://watabou.github.io/village.html))
+  and river meander modeling https://en.wikipedia.org/wiki/Meander
 - Point-in-polygon and polygon offsetting —
   https://en.wikipedia.org/wiki/Point_in_polygon, https://en.wikipedia.org/wiki/Straight_skeleton
 

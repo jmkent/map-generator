@@ -35,14 +35,15 @@ This boundary is what makes "refine from there" cheap instead of a rewrite.
 ## 2. Confirmed decisions
 
 - **Geometry libs:** `d3-delaunay` approved for Voronoi/relaxation (fields, lot
-  subdivision). Wired in at **M6** (terrain), not before. `polygon-clipping` deferred until
-  a stage actually needs boolean ops. Everything through M5 (incl. road-graph
-  planarization) uses hand-rolled primitives (bbox, inset, SAT, segment intersection).
+  subdivision). Wired in at **M8** (decorative terrain), not before. `polygon-clipping`
+  deferred until a stage actually needs boolean ops. Everything through M7 (road-graph
+  planarization and water) uses hand-rolled primitives (bbox, inset, SAT, segment/spline
+  intersection).
 - **Camera:** **near-orthographic** — `@babylonjs/lite` exposes no true orthographic
   projection, so a narrow FOV (~8°) viewed from a correspondingly large radius makes
   perspective divergence negligible, giving the flat, map-like watabou feel. Fixed tilt,
   controls locked, auto-framed to bounds. Widening the FOV yields a perspective "diorama"
-  toggle, deferred to **M7**.
+  toggle, deferred to **M9**.
 - **RNG:** seedable 32-bit PRNG (mulberry32/sfc32) with **named streams** — each stage's
   generator derived from `hash(masterSeed, streamName)` so adding/reordering a stage does
   not shift earlier stages' random sequences. Regressions stay local; untouched stages'
@@ -66,13 +67,14 @@ src/
       catmullRom.ts        # centripetal spline through control points
       graph.ts             # road-graph planarization: edge intersection + splitting
       sampling.ts          # weighted pick, poisson-disk, jitter
-      voronoi.ts           # d3-delaunay wrapper + Lloyd relaxation (M6)
+      voronoi.ts           # d3-delaunay wrapper + Lloyd relaxation (M8)
     stages/
       boundary.ts          # village extent polygon
+      water.ts             # STRUCTURAL: rivers, ponds, lakes, coast (runs early, M6–M7)
       roads.ts             # road graph: primaries + secondaries/spokes + approaches
-      parcels.ts           # subdivide buildable band into lots
-      buildings.ts         # place clustered house footprints
-      terrain.ts           # fields, forest, grass, optional river/water
+      parcels.ts           # subdivide buildable band into lots (water-aware)
+      buildings.ts         # place clustered house footprints (water-aware)
+      terrain.ts           # DECORATIVE: fields, woodlands, grass (M8)
   render/                  # ── Babylon. Consumes MapModel. ──
     Renderer.ts            # engine/scene lifecycle
     framing.ts             # pure near-orthographic framing math (tested)
@@ -82,6 +84,7 @@ src/
     meshers/
       groundMesher.ts      # terrain cells → zoned ground
       roadMesher.ts        # road polylines → ribbons
+      waterMesher.ts       # water bodies/river channel → flat water surface
       buildingMesher.ts    # footprints → extruded, thin-instanced
   ui/
     controls.ts            # seed field, regenerate, param sliders, screenshot
@@ -107,11 +110,19 @@ Babylon into the module graph.
   keep growing without a rewrite. (M2 shipped the single-primary + branch-stub subset;
   M4–M5 generalize it.)
 - **Logical clumps:** **Poisson-disk sampling with a spatially-varying density function**
-  (higher near roads/center, zero outside boundary). One primitive drives both house and
-  tree clustering; the falloff function is the "clump" control.
-- **Terrain:** material-zoned ground; farmland fields as **Voronoi + Lloyd relaxation**
-  patches (M6); forests as thin-instanced trees seeded by the Poisson sampler under a
-  forest density mask; optional river/water.
+  (higher near roads/center **and water access**, zero over water or outside boundary). One
+  primitive drives both house and tree clustering; the falloff function is the "clump"
+  control, and water contributes a proximity term (M6–M7).
+- **Water is structural terrain, not decoration.** Real settlements are built around water,
+  so water is generated **early** (a `water.ts` stage before roads) and *constrains* the
+  layout — unlike woodlands/fields, which are painted on at the end. The three forms escalate
+  in structural weight: **rivers** behave almost like a road (a crossable water-spine →
+  bridges/fords, banked buildings); **ponds/lakes** are closed bodies to avoid and cluster
+  near; a large **lake/ocean** becomes a **border** that replaces part of the boundary and
+  makes a waterfront town. All feed the density falloff so the village hugs the water.
+- **Decorative terrain:** material-zoned ground filling what's left after water + settlement;
+  farmland fields as **Voronoi + Lloyd relaxation** patches (M8); woodlands as thin-instanced
+  trees seeded by the Poisson sampler under a density mask. No constraint on layout.
 - **Houses:** footprint polygon (rect with occasional L/T variation) → `inset` for wall
   thickness → extrude to a seeded height → optional roof prism. Thin-instanced via
   `addThinInstance`.
@@ -131,9 +142,12 @@ Babylon into the module graph.
 
 Each milestone is a shippable vertical slice. The village "clicks" visually at **M3**.
 
-> **Status:** M0–M3 are shipped. M4–M5 (below) deepen the road network into a real
-> multi-road town with off-map entrances *before* terrain. Terrain and interactivity were
-> renumbered to **M6–M7** to keep the list in build order.
+> **Status:** M0–M3 are shipped. The remaining milestones run in build order: **M4–M5**
+> deepen the road network (multi-road town + off-map entrances); **M6–M7** add *structural
+> water* (rivers, then ponds/lakes/coast) which constrains the layout; **M8** paints
+> *decorative terrain* (fields/woodlands) on what's left; **M9** is interactivity & polish.
+> Structural water precedes decorative terrain deliberately — water shapes where the town
+> goes, woodlands just fill the gaps.
 
 ### M0 — Scaffold & fixed-angle stage
 Strip the sandbox demo from `src/main.ts`. Stand up `Renderer` + a near-orthographic camera
@@ -239,7 +253,8 @@ country — the roads you actually arrive on.
 **Scope:**
 - **Map extent:** introduce `mapBounds` — the village bounds expanded by a countryside
   margin — as the world the village sits in. The camera frames `mapBounds`, not the tight
-  boundary. (This also gives terrain a countryside to fill in M6.)
+  boundary. (This also gives the later water and terrain stages a countryside to fill,
+  M6–M8.)
 - **Entrances (2–4):** from selected primary endpoints, continue the road's tangent
   outward, crossing the village boundary once, to a point on the `mapBounds` edge. Class
   `approach` (primary width). Entrances are spread by angle; not every endpoint gets one.
@@ -256,24 +271,89 @@ countryside margin around the village.
 - **Framing:** camera frames `mapBounds` (contains village boundary + margin).
 - **Determinism + golden.**
 
-### M6 — Terrain
-`terrain.ts`: the countryside inside `mapBounds` but outside the village fills with farmland
-fields as relaxed Voronoi patches (wire in `d3-delaunay` here), grass, forest clumps
-(thin-instanced trees under a density mask), optional river/water. `groundMesher.ts` renders
-material-zoned ground.
+### M6 — Rivers (flowing structural water)
+A river behaves *almost like a road* — a meandering water-spine — but it's water, so it
+constrains the settlement rather than serving it.
 
-**Deliverable:** houses sit in a landscape, roads run out through fields to the edge.
+**Pipeline position:** a `water.ts` stage runs **early** (after boundary, before roads), so
+every downstream stage already sees the water. Because M0–M5 predate it, this milestone
+retrofits water-awareness into the boundary/road/parcel stages (the cost of adding structural
+generation late — see the note below).
+
+**Scope:**
+- **River path:** a meandering Catmull-Rom polyline, typically map-edge to map-edge (or edge
+  to a lake), widening downstream. Reuses the spline + planarization utilities.
+- **Crossings:** where a road crosses the river, insert a **bridge/ford** node (a flagged
+  crossing edge) instead of a free intersection; a village split by the river stays connected
+  only through bridges.
+- **Bank bias:** parcels/buildings avoid the channel; the density falloff gains a
+  **water-proximity** term so the town banks the river.
+- **Model:** `water: WaterBody[]` with a river = `{ kind: "river", path, width }`; road graph
+  gains bridge nodes/edges.
+
+**Deliverable:** a village straddling a river, joined by bridges, houses banking the water.
+
+**Test plan:**
+- **Invariants:** river path is simple and spans to map edges/bodies; every road×river
+  crossing is a bridge node (no road edge passes through open water uncrossed); no building
+  footprint overlaps the channel; more buildings within distance *D* of the river than a
+  uniform sample (bank bias); graph stays connected across the river.
+- **Determinism + stream isolation:** `water` stream identical for a seed; unaffected by
+  road/parcel params.
+- **Golden:** SVG snapshots. **Mesher:** water surface covers the channel; no NaNs.
+
+> **Note — ordering trade-off.** Structurally, water belongs *before* the settlement in the
+> pipeline, so ideally it would have been built before M2–M5. Scheduling it at M6 means the
+> road/parcel stages get water-awareness bolted on rather than designed in, and M6–M7 will
+> touch code those milestones own. That's an accepted cost of prioritizing the road network
+> first; if the retrofit proves large, the alternative is to pull the `water.ts` stage (at
+> least a river channel) forward ahead of the M4 road-network work so roads are water-aware
+> from the start.
+
+### M7 — Standing water & coastline (ponds, lakes, ocean border)
+Closed water bodies, escalating to a large body that becomes a **border**.
+
+**Scope:**
+- **Ponds:** small organic water blobs (mini-boundary polygons); local avoidance + mild
+  amenity bias.
+- **Lakes:** larger closed bodies, optionally fed by the M6 river; shoreline clustering.
+- **Coast/ocean as border:** a large body occupying a region of `mapBounds`, its shoreline
+  **replacing part of the village boundary** → a waterfront town. The settlement fills the
+  land side; roads run parallel to the shore and lead to optional **docks/harbor** where a
+  primary road meets the water. Strong shoreline clustering.
+- **Model:** `WaterBody.kind` ∈ `pond | lake | coast`; boundary/`mapBounds` become
+  water-aware (clipped by a coast).
+
+**Deliverable:** waterfront villages — a lake or ocean edge as a hard border with the town
+hugging the shore; ponds dotting the interior.
+
+**Test plan:**
+- **Invariants:** water bodies are simple, non-overlapping, inside `mapBounds`; no
+  building/road lies in water; a coast body touches a `mapBounds` edge and the village sits
+  on its land side; shoreline bias (buildings nearer the shore than a uniform sample); any
+  dock road terminates at the shore.
+- **Determinism + golden + mesher.**
+
+### M8 — Decorative terrain (fields & woodlands)
+Now purely cosmetic: `terrain.ts` fills the countryside inside `mapBounds` that is left over
+after water + settlement. Farmland fields as relaxed Voronoi patches (wire in `d3-delaunay`
+here), woodlands as thin-instanced trees under a density mask, grass. `groundMesher.ts`
+renders material-zoned ground. No layout constraints — this is the decorative half of the
+structural/decorative split.
+
+**Deliverable:** houses sit in a landscape; roads run out through fields to the edge; woods
+fill the hills.
 
 **Test plan:**
 - **Voronoi wrapper:** cells partition the target region; relaxation converges (centroid
   drift decreases across iterations); determinism preserved through the lib.
-- **Terrain invariants:** cells partition the non-built area; no cell–building overlap;
-  forest samples respect the density mask and boundary.
+- **Terrain invariants:** cells partition the non-built, non-water area; no cell overlaps a
+  building or water body; forest samples respect the density mask, boundary, and water.
 - **Golden:** SVG snapshots including terrain zones.
 - **Mesher (headless):** ground `GeometryData` covers bounds; zone material assignment
   matches cell types; tree instance count matches sampled points.
 
-### M7 — Interactivity & polish
+### M9 — Interactivity & polish
 Seed input + regenerate; a few param sliders (village size, density, "has river");
 click-to-inspect via `pickAsync`; screenshot export via `captureScreenshot`; full param
 set encoded in the shareable URL; perspective-camera toggle.
