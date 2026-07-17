@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Vec2 } from "../../src/gen/types";
 import { generateVillage } from "../../src/gen/pipeline";
-import { convexOverlap, ensureCCW } from "../../src/gen/geometry/polygon";
+import { contains, convexOverlap, ensureCCW } from "../../src/gen/geometry/polygon";
 import { add, normalize, perp, scale, sub } from "../../src/gen/geometry/vec2";
 import { distanceToRiver } from "../../src/gen/stages/water";
 
@@ -11,15 +11,18 @@ const SEEDS = ["village", "hamlet", "riverford", "tarry"];
 describe("structural rivers", () => {
     for (const seed of SEEDS) {
         it(`spans map edges and marks every road crossing for ${seed}`, () => {
-            const model = generateVillage(seed, { settlementProfile: "haufendorf" });
+            const model = generateVillage(seed, { settlementProfile: "haufendorf", riverChance: 1 });
             const river = model.water[0];
             const start = river.path[0];
             const end = river.path[river.path.length - 1];
 
             expect(river.kind).toBe("river");
+            expect(river.leftBank).toHaveLength(river.path.length);
+            expect(river.rightBank).toHaveLength(river.path.length);
             expect(onBounds(model.mapBounds, start)).toBe(true);
             expect(onBounds(model.mapBounds, end)).toBe(true);
             expect(simplePolyline(river.path)).toBe(true);
+            expect(river.path.some((point) => contains(model.boundary, point))).toBe(true);
 
             const positions = new Map(model.roads.nodes.map((node) => [node.id, node.pos]));
             for (const edge of model.roads.edges) {
@@ -38,7 +41,7 @@ describe("structural rivers", () => {
     }
 
     it("keeps buildings clear of the channel and biases development toward banks", () => {
-        const model = generateVillage("river-banks", { settlementProfile: "haufendorf" });
+        const model = generateVillage("river-banks", { settlementProfile: "haufendorf", riverChance: 1 });
         const river = model.water[0];
         const distances = model.buildings.map((building) => distanceToRiver(building.center, river));
 
@@ -53,9 +56,25 @@ describe("structural rivers", () => {
     });
 
     it("is deterministic on its named stream", () => {
-        expect(generateVillage("river-stream").water[0]).toEqual(generateVillage("river-stream").water[0]);
-        expect(generateVillage("river-stream", { primaryRoadTarget: 1 }).water[0]).toEqual(generateVillage("river-stream").water[0]);
+        expect(generateVillage("river-stream", { riverChance: 1 }).water[0]).toEqual(generateVillage("river-stream", { riverChance: 1 }).water[0]);
+        expect(generateVillage("river-stream", { riverChance: 1, primaryRoadTarget: 1 }).water[0]).toEqual(generateVillage("river-stream", { riverChance: 1 }).water[0]);
     });
+
+    it("uses variable-width, noisy river banks", () => {
+        const river = generateVillage("noisy-river", { riverChance: 1 }).water[0];
+        if (river.kind !== "river") return;
+        const widths = river.path.map((_, index) => Math.hypot(
+            river.leftBank[index].x - river.rightBank[index].x,
+            river.leftBank[index].y - river.rightBank[index].y,
+        ));
+
+        expect(Math.max(...widths) - Math.min(...widths)).toBeGreaterThan(0.3);
+    });
+});
+
+it("makes river presence a deterministic optional seed decision", () => {
+    expect(generateVillage("optional-river", { riverChance: 0 }).water.some((body) => body.kind === "river")).toBe(false);
+    expect(generateVillage("optional-river", { riverChance: 1 }).water.some((body) => body.kind === "river")).toBe(true);
 });
 
 describe("standing water and coastline", () => {
@@ -68,7 +87,10 @@ describe("standing water and coastline", () => {
 
             expect(simplePolygon(body.polygon)).toBe(true);
             expect(body.polygon.every((point) => insideBounds(model.mapBounds, point))).toBe(true);
-            if (kind === "coast") expect(body.polygon.some((point) => onBounds(model.mapBounds, point))).toBe(true);
+            if (kind === "coast") {
+                expect(body.polygon.some((point) => onBounds(model.mapBounds, point))).toBe(true);
+                expect(body.polygon.length).toBeGreaterThan(4);
+            }
 
             const positions = new Map(model.roads.nodes.map((node) => [node.id, node.pos]));
             for (const edge of model.roads.edges) {

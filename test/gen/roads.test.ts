@@ -116,21 +116,21 @@ describe("approach roads", () => {
             const approaches = model.roads.edges.filter((edge) => edge.kind === "approach");
             const positions = new Map(model.roads.nodes.map((node) => [node.id, node.pos]));
             const degree = degrees(model.roads);
+            const entrances = [...new Set(approaches.flatMap((edge) => [edge.a, edge.b]).filter((id) => onBounds(model.mapBounds, positions.get(id)!)))];
 
-            expect(approaches.length).toBeGreaterThanOrEqual(model.params.approachRoadMin);
-            expect(approaches.length).toBeLessThanOrEqual(model.params.approachRoadMax);
-            for (const edge of approaches) {
-                const a = positions.get(edge.a)!;
-                const b = positions.get(edge.b)!;
-                const outerId = onBounds(model.mapBounds, a) ? edge.a : edge.b;
-                const innerId = outerId === edge.a ? edge.b : edge.a;
+            expect(entrances.length).toBeGreaterThanOrEqual(model.params.approachRoadMin);
+            expect(entrances.length).toBeLessThanOrEqual(model.params.approachRoadMax);
+            for (const outerId of entrances) {
                 const outer = positions.get(outerId)!;
-                const inner = positions.get(innerId)!;
+                const connected = approachComponent(model.roads, outerId);
+                const innerId = [...connected].find((id) => model.roads.edges.some(
+                    (edge) => edge.kind === "primary" && (edge.a === id || edge.b === id),
+                ));
 
                 expect(onBounds(model.mapBounds, outer)).toBe(true);
-                expect(model.roads.edges.some((other) => other.kind === "primary" && (other.a === innerId || other.b === innerId))).toBe(true);
+                expect(innerId).toBeDefined();
                 expect(degree.get(outerId)).toBe(1);
-                expect(boundaryCrossings(model.boundary, inner, outer)).toBe(1);
+                expect(boundaryCrossings(model.boundary, positions.get(innerId!)!, outer)).toBe(1);
             }
         });
     }
@@ -181,6 +181,22 @@ function insideBounds(bounds: { minX: number; minY: number; maxX: number; maxY: 
 function onBounds(bounds: { minX: number; minY: number; maxX: number; maxY: number }, point: Pt): boolean {
     const eps = 1e-6;
     return Math.abs(point.x - bounds.minX) < eps || Math.abs(point.x - bounds.maxX) < eps || Math.abs(point.y - bounds.minY) < eps || Math.abs(point.y - bounds.maxY) < eps;
+}
+
+function approachComponent(network: RoadNetwork, start: number): Set<number> {
+    const connected = new Set<number>([start]);
+    const pending = [start];
+    while (pending.length > 0) {
+        const current = pending.pop()!;
+        for (const edge of network.edges) {
+            if (edge.kind !== "approach" || (edge.a !== current && edge.b !== current)) continue;
+            const next = edge.a === current ? edge.b : edge.a;
+            if (connected.has(next)) continue;
+            connected.add(next);
+            pending.push(next);
+        }
+    }
+    return connected;
 }
 
 function boundaryCrossings(boundary: Pt[], a: Pt, b: Pt): number {

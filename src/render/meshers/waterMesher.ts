@@ -1,12 +1,16 @@
 // Water mesher: flat ribbon quads for flowing river channels. PURE.
 
 import type { WaterBody } from "../../gen/types";
-import { normalize, perp, sub } from "../../gen/geometry/vec2";
 import type { GeometryData } from "../geometryData";
 
 export function waterGeometry(water: readonly WaterBody[], y = 0): GeometryData {
     const segments = water.flatMap((body) => body.kind === "river"
-        ? body.path.slice(1).map((point, index) => ({ a: body.path[index], b: point, width: body.width }))
+        ? body.path.slice(1).map((_, index) => ({
+            leftA: body.leftBank[index],
+            rightA: body.rightBank[index],
+            leftB: body.leftBank[index + 1],
+            rightB: body.rightBank[index + 1],
+        }))
         : []);
     const closedBodies = water.filter((body) => body.kind !== "river");
     const riverVertexCount = segments.length * 4;
@@ -16,13 +20,11 @@ export function waterGeometry(water: readonly WaterBody[], y = 0): GeometryData 
     const indices = new Uint32Array(segments.length * 6 + closedBodies.reduce((sum, body) => sum + body.polygon.length * 3, 0));
 
     segments.forEach((segment, index) => {
-        const normal = normalize(perp(sub(segment.b, segment.a)));
-        const half = { x: normal.x * segment.width / 2, y: normal.y * segment.width / 2 };
         const corners = [
-            { x: segment.a.x - half.x, y: segment.a.y - half.y },
-            { x: segment.a.x + half.x, y: segment.a.y + half.y },
-            { x: segment.b.x + half.x, y: segment.b.y + half.y },
-            { x: segment.b.x - half.x, y: segment.b.y - half.y },
+            segment.leftA,
+            segment.rightA,
+            segment.rightB,
+            segment.leftB,
         ];
         const base = index * 4;
         corners.forEach((corner, cornerIndex) => {

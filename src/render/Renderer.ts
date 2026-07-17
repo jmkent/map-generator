@@ -88,20 +88,24 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
         addToScene(scene, civicMesh);
     }
 
-    // Water lies above ground but below roads so river crossings remain visible.
-    const waterGeo = waterGeometry(model.water, 0.035);
+    // Keep water clearly above the terrain depth plane, while leaving roads on
+    // top so bridge crossings retain their visual hierarchy.
+    const waterGeo = waterGeometry(model.water, 0.06);
     if (waterGeo.indices.length > 0) {
         const waterMesh = createMeshFromData(engine, "water", waterGeo.positions, waterGeo.normals, waterGeo.indices);
         const waterMat = createStandardMaterial();
-        waterMat.diffuseColor = [0.12, 0.42, 0.68];
-        waterMat.specularColor = [0.15, 0.2, 0.24];
+        waterMat.diffuseColor = [0.04, 0.3, 0.78];
+        waterMat.emissiveColor = [0.02, 0.12, 0.34];
+        waterMat.specularColor = [0.25, 0.5, 0.8];
+        waterMat.backFaceCulling = false;
+        waterMat.disableLighting = true;
         waterMesh.material = waterMat;
         waterMesh.pickable = false;
         addToScene(scene, waterMesh);
     }
 
     // Roads as flat ribbons, above the boundary patch.
-    const roadGeo = roadGeometry(model.roads, 0.04);
+    const roadGeo = roadGeometry(model.roads, 0.08);
     if (roadGeo.indices.length > 0) {
         const roadMesh = createMeshFromData(engine, "roads", roadGeo.positions, roadGeo.normals, roadGeo.indices);
         const roadMat = createStandardMaterial();

@@ -4,6 +4,7 @@
 
 import "./style.css";
 import { parseSeed, randomSeed, serializeState } from "./app/urlState";
+import { geometryDiagnostics } from "./app/geometryDiagnostics";
 import { createHud } from "./ui/hud";
 import { createRenderer } from "./render/Renderer";
 import { generateVillage } from "./gen/pipeline";
@@ -21,6 +22,7 @@ const hud = createHud();
 hud.setSeed(seed);
 
 const model = generateVillage(seed);
+hud.setDiagnostics(geometryDiagnostics(model));
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 await createRenderer(canvas, model);

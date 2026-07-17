@@ -17,8 +17,7 @@ body,
   top: 12px;
   left: 12px;
   z-index: 10;
-  display: flex;
-  gap: 12px;
+  display: block;
   padding: 8px 12px;
   font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
   color: #e8ecf1;
@@ -27,4 +26,15 @@ body,
   border-radius: 6px;
   pointer-events: none;
   user-select: none;
+}
+
+.hud__seed {
+  font-weight: 700;
+}
+
+.hud__diagnostics {
+  margin: 5px 0 0;
+  padding: 0;
+  list-style: none;
+  color: #c3ccd8;
 }

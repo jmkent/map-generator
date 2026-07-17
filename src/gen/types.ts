@@ -75,7 +75,9 @@ export interface VillageParams {
     approachRoadMin: number;
     /** Maximum number of primary roads that continue to the map edge. */
     approachRoadMax: number;
-    /** Width of the generated river channel, in world units. */
+    /** Probability that a seed generates a structural river, 0..1. */
+    riverChance: number;
+    /** Width of a generated river channel, in world units. */
     riverWidth: number;
     /** Standing-water form, or a deterministic seeded selection. */
     standingWaterKind: "auto" | "pond" | "lake" | "coast";
@@ -187,7 +189,11 @@ export interface RoadNetwork {
 /** A flowing water channel that structurally constrains the settlement. */
 export interface River {
     kind: "river";
+    /** Centerline used for crossings and proximity queries. */
     path: Vec2[];
+    /** Seeded, irregular shoreline samples matching the centerline. */
+    leftBank: Vec2[];
+    rightBank: Vec2[];
     width: number;
 }
 

@@ -20,6 +20,7 @@ export const DEFAULT_PARAMS: VillageParams = {
     countrysideMargin: 0.32,
     approachRoadMin: 2,
     approachRoadMax: 4,
+    riverChance: 0.4,
     riverWidth: 9,
     standingWaterKind: "auto",
     primaryRoadTarget: 3,
@@ -53,7 +54,10 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
 
     const bounds = polygonBounds(boundary);
     const mapBounds = expandBounds(bounds, p.radius * p.countrysideMargin);
-    const river = generateRiver(rng.stream("water"), { mapBounds, radius: p.radius, width: p.riverWidth });
+    const waterRng = rng.stream("water");
+    const river = waterRng.chance(p.riverChance)
+        ? generateRiver(waterRng, { boundary, mapBounds, radius: p.radius, width: p.riverWidth })
+        : undefined;
     const settlement = generateLayout(rng.stream("layout"), {
         boundary,
         radius: p.radius,
@@ -83,7 +87,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         maxCount: p.approachRoadMax,
         width: p.primaryRoadWidth,
     });
-    const roads = integrateRiverCrossings(approachedRoads, river);
+    const roads = river ? integrateRiverCrossings(approachedRoads, river) : approachedRoads;
     const standingWater = generateStandingWater(rng.stream("standing-water"), {
         boundary,
         mapBounds,
@@ -92,7 +96,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         radius: p.radius,
         kind: p.standingWaterKind,
     });
-    const water = [river, standingWater];
+    const water = river ? [river, standingWater] : [standingWater];
 
     const parcels = generateParcels(rng.stream("parcels"), {
         boundary,

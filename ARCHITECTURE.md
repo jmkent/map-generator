@@ -115,6 +115,14 @@ after the village is complete. `src/gen/stages/water.ts` uses the independent
 edge to the opposite edge. This makes the river stable when road or building
 parameters change.
 
+The centerline is only the routing reference. The visible channel is represented
+by matching left and right bank samples whose width changes gradually from one
+sample to the next. This avoids ruler-straight water edges while keeping road
+crossing and distance calculations simple. Ponds and lakes use seeded irregular
+outlines, and coast keeps its map-edge boundary while jittering the shoreline
+facing land. The SVG and Babylon water mesh consume these shoreline points
+directly rather than reconstructing a clean uniform ribbon.
+
 After roads are generated, every road-channel intersection is split into a
 shared road node marked `crossing: "bridge"`. The road mesh is drawn above the
 water mesh, making those flagged crossings legible while preserving a single

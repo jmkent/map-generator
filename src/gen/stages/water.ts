@@ -4,9 +4,10 @@ import type { Bounds, Polygon, River, RoadEdge, RoadNetwork, RoadNode, StandingW
 import type { Rng } from "../rng";
 import { catmullRom } from "../geometry/catmullRom";
 import { contains, ensureCCW } from "../geometry/polygon";
-import { lerp, sub } from "../geometry/vec2";
+import { add, lerp, normalize, perp, scale, sub } from "../geometry/vec2";
 
 export interface RiverParams {
+    boundary: Polygon;
     mapBounds: Bounds;
     radius: number;
     width: number;
@@ -16,40 +17,48 @@ export interface StandingWaterParams {
     boundary: Polygon;
     mapBounds: Bounds;
     roads: RoadNetwork;
-    river: River;
+    river?: River;
     radius: number;
     kind: "auto" | StandingWater["kind"];
 }
 
 /** Create a seeded, gently meandering channel from one map edge to its opposite. */
 export function generateRiver(rng: Rng, params: RiverParams): River {
-    const { mapBounds, radius, width } = params;
+    const { boundary, mapBounds, radius, width } = params;
     const horizontal = rng.chance(0.5);
     const span = horizontal ? mapBounds.maxX - mapBounds.minX : mapBounds.maxY - mapBounds.minY;
     const crossMin = horizontal ? mapBounds.minY : mapBounds.minX;
     const crossMax = horizontal ? mapBounds.maxY : mapBounds.maxX;
-    const startCross = rng.float(crossMin + (crossMax - crossMin) * 0.2, crossMin + (crossMax - crossMin) * 0.42);
-    const endCross = rng.float(crossMin + (crossMax - crossMin) * 0.58, crossMin + (crossMax - crossMin) * 0.8);
+    const center = centroidLike(boundary);
+    const centerCross = horizontal ? center.y : center.x;
+    const endpointOffset = Math.min(radius * 0.16, (crossMax - crossMin) * 0.14);
+    const startCross = clamp(centerCross + rng.float(-endpointOffset, endpointOffset), crossMin, crossMax);
+    const endCross = clamp(centerCross + rng.float(-endpointOffset, endpointOffset), crossMin, crossMax);
     const meander = Math.min(radius * 0.24, (crossMax - crossMin) * 0.17);
     const controls: Vec2[] = horizontal
         ? [
             { x: mapBounds.minX, y: startCross },
-            { x: mapBounds.minX + span * 0.28, y: clamp(startCross + rng.float(-meander, meander), crossMin, crossMax) },
-            { x: mapBounds.minX + span * 0.68, y: clamp(endCross + rng.float(-meander, meander), crossMin, crossMax) },
+            { x: mapBounds.minX + span * 0.28, y: clamp(center.y + rng.float(-meander, meander), crossMin, crossMax) },
+            center,
+            { x: mapBounds.minX + span * 0.72, y: clamp(center.y + rng.float(-meander, meander), crossMin, crossMax) },
             { x: mapBounds.maxX, y: endCross },
         ]
         : [
             { x: startCross, y: mapBounds.minY },
-            { x: clamp(startCross + rng.float(-meander, meander), crossMin, crossMax), y: mapBounds.minY + span * 0.28 },
-            { x: clamp(endCross + rng.float(-meander, meander), crossMin, crossMax), y: mapBounds.minY + span * 0.68 },
+            { x: clamp(center.x + rng.float(-meander, meander), crossMin, crossMax), y: mapBounds.minY + span * 0.28 },
+            center,
+            { x: clamp(center.x + rng.float(-meander, meander), crossMin, crossMax), y: mapBounds.minY + span * 0.72 },
             { x: endCross, y: mapBounds.maxY },
         ];
-    return { kind: "river", path: catmullRom(controls, 10), width };
+    const path = catmullRom(controls, 10);
+    const { leftBank, rightBank } = riverBanks(rng, path, width, mapBounds);
+    return { kind: "river", path, leftBank, rightBank, width };
 }
 
 /** Generate one closed body in open land, or a coastal reserve against the map edge. */
 export function generateStandingWater(rng: Rng, params: StandingWaterParams): StandingWater {
     const kind = params.kind === "auto" ? rng.pick(["pond", "lake", "coast"] as const) : params.kind;
+    const river = params.river;
     if (kind === "coast") return coast(rng, params);
     const size = kind === "pond" ? params.radius * 0.09 : params.radius * 0.19;
     const roadPositions = new Map(params.roads.nodes.map((node) => [node.id, node.pos]));
@@ -57,7 +66,7 @@ export function generateStandingWater(rng: Rng, params: StandingWaterParams): St
         const center = randomPointInBoundary(rng, params.boundary, params.radius);
         const polygon = organicBody(rng, center, size, kind === "pond" ? 10 : 14);
         if (!polygon.every((point) => contains(params.boundary, point))) continue;
-        if (polygon.some((point) => distanceToRiver(point, params.river) < params.river.width / 2 + size * 0.3)) continue;
+        if (river && polygon.some((point) => distanceToRiver(point, river) < river.width / 2 + size * 0.3)) continue;
         if (params.roads.edges.some((edge) => distancePointToSegment(center, roadPositions.get(edge.a)!, roadPositions.get(edge.b)!) < size + edge.width)) continue;
         return { kind, polygon };
     }
@@ -161,22 +170,53 @@ function coast(rng: Rng, params: StandingWaterParams): StandingWater {
     const ordered = sides.map((_, index) => sides[(index + offset) % sides.length]);
     const positions = new Map(params.roads.nodes.map((node) => [node.id, node.pos]));
     for (const side of ordered) {
-        const polygon = coastPolygon(side, minX, minY, maxX, maxY, depth);
+        const polygon = coastPolygon(rng, side, minX, minY, maxX, maxY, depth);
         if (!params.roads.edges.some((edge) => segmentTouchesPolygon(positions.get(edge.a)!, positions.get(edge.b)!, polygon))) {
             return { kind: "coast", polygon };
         }
     }
     // An unusually crowded map still gets a coastal reserve, but shrink it to
     // the outermost strip so it does not swallow an entrance road.
-    return { kind: "coast", polygon: coastPolygon(ordered[0], minX, minY, maxX, maxY, params.radius * 0.04) };
+    return { kind: "coast", polygon: coastPolygon(rng, ordered[0], minX, minY, maxX, maxY, params.radius * 0.04) };
 }
 
-function coastPolygon(side: "left" | "right" | "bottom" | "top", minX: number, minY: number, maxX: number, maxY: number, depth: number): Polygon {
-    const polygon = side === "left" ? [{ x: minX, y: minY }, { x: minX + depth, y: minY }, { x: minX + depth, y: maxY }, { x: minX, y: maxY }]
-        : side === "right" ? [{ x: maxX - depth, y: minY }, { x: maxX, y: minY }, { x: maxX, y: maxY }, { x: maxX - depth, y: maxY }]
-        : side === "bottom" ? [{ x: minX, y: minY }, { x: maxX, y: minY }, { x: maxX, y: minY + depth }, { x: minX, y: minY + depth }]
-        : [{ x: minX, y: maxY - depth }, { x: maxX, y: maxY - depth }, { x: maxX, y: maxY }, { x: minX, y: maxY }];
+function coastPolygon(rng: Rng, side: "left" | "right" | "bottom" | "top", minX: number, minY: number, maxX: number, maxY: number, depth: number): Polygon {
+    const steps = 12;
+    const jitter = depth * 0.28;
+    const shore = Array.from({ length: steps + 1 }, (_, index) => {
+        const t = index / steps;
+        const noise = index === 0 || index === steps ? 0 : rng.float(-jitter, jitter);
+        if (side === "left") return { x: minX + depth + noise, y: minY + (maxY - minY) * t };
+        if (side === "right") return { x: maxX - depth - noise, y: minY + (maxY - minY) * t };
+        if (side === "bottom") return { x: minX + (maxX - minX) * t, y: minY + depth + noise };
+        return { x: minX + (maxX - minX) * t, y: maxY - depth - noise };
+    });
+    const polygon = side === "left" ? [{ x: minX, y: minY }, ...shore, { x: minX, y: maxY }]
+        : side === "right" ? [{ x: maxX, y: minY }, { x: maxX, y: maxY }, ...shore.reverse()]
+        : side === "bottom" ? [{ x: minX, y: minY }, { x: maxX, y: minY }, ...shore.reverse()]
+        : [...shore, { x: maxX, y: maxY }, { x: minX, y: maxY }];
     return ensureCCW(polygon);
+}
+
+function riverBanks(rng: Rng, path: Vec2[], width: number, bounds: Bounds): { leftBank: Vec2[]; rightBank: Vec2[] } {
+    const leftBank: Vec2[] = [];
+    const rightBank: Vec2[] = [];
+    let previousNoise = rng.float(-0.16, 0.16);
+    for (let i = 0; i < path.length; i++) {
+        const before = path[Math.max(0, i - 1)];
+        const after = path[Math.min(path.length - 1, i + 1)];
+        const normal = normalize(perp(sub(after, before)));
+        const noise = i === 0 || i === path.length - 1 ? 0 : previousNoise * 0.6 + rng.float(-0.13, 0.13);
+        previousNoise = noise;
+        const half = width * (0.5 + noise);
+        leftBank.push(clampToBounds(add(path[i], scale(normal, half)), bounds));
+        rightBank.push(clampToBounds(sub(path[i], scale(normal, half)), bounds));
+    }
+    return { leftBank, rightBank };
+}
+
+function clampToBounds(point: Vec2, bounds: Bounds): Vec2 {
+    return { x: clamp(point.x, bounds.minX, bounds.maxX), y: clamp(point.y, bounds.minY, bounds.maxY) };
 }
 
 function segmentTouchesPolygon(a: Vec2, b: Vec2, polygon: Polygon): boolean {
