@@ -1,6 +1,6 @@
 // Structural river generation and road-crossing integration. PURE.
 
-import type { Bounds, Polygon, River, RoadEdge, RoadNetwork, RoadNode, StandingWater, TerrainModel, Vec2, VillageParams, WaterBody } from "../types";
+import type { Bounds, Polygon, River, RoadEdge, RoadNetwork, RoadNode, StandingWater, TerrainModel, Vec2, VillageParams } from "../types";
 import type { Rng } from "../rng";
 import { catmullRom } from "../geometry/catmullRom";
 import { contains, ensureCCW } from "../geometry/polygon";
@@ -22,32 +22,47 @@ export interface StandingWaterParams {
     kind: "auto" | StandingWater["kind"];
 }
 
-export interface HydrologyParams {
+export interface RiverResolveParams {
     terrain: TerrainModel;
     boundary: Polygon;
     radius: number;
     riverChance: number;
     riverWidth: number;
-    standingWaterKind: VillageParams["standingWaterKind"];
-    roads: RoadNetwork;
 }
 
-/** Resolve all water from the selected terrain site before roads use it. */
-export function generateHydrology(rng: Rng, params: HydrologyParams): WaterBody[] {
+export interface StandingWaterResolveParams {
+    terrain: TerrainModel;
+    boundary: Polygon;
+    radius: number;
+    standingWaterKind: VillageParams["standingWaterKind"];
+    roads: RoadNetwork;
+    river?: River;
+}
+
+/**
+ * Resolve the river from the landform *before* roads, so the road stage can choose
+ * a deliberate crossing (M12b). Standing water is resolved separately afterwards.
+ * Both draw from the same hydrology stream in this order, so the sequence is
+ * unchanged from resolving them together.
+ */
+export function resolveRiver(rng: Rng, params: RiverResolveParams): River | undefined {
     const riverChance = terrainRiverChance(params.terrain.profile, params.riverChance);
-    const river = rng.chance(riverChance)
+    return rng.chance(riverChance)
         ? generateRiver(rng, { boundary: params.boundary, mapBounds: params.terrain.bounds, radius: params.radius, width: params.riverWidth })
         : undefined;
+}
+
+/** Resolve standing water after roads, so closed bodies can avoid the road graph. */
+export function resolveStandingWater(rng: Rng, params: StandingWaterResolveParams): StandingWater {
     const kind = params.standingWaterKind === "auto" ? terrainWaterKind(params.terrain.profile) : params.standingWaterKind;
-    const standing = generateStandingWater(rng, {
+    return generateStandingWater(rng, {
         boundary: params.boundary,
         mapBounds: params.terrain.bounds,
         roads: params.roads,
-        river,
+        river: params.river,
         radius: params.radius,
         kind,
     });
-    return river ? [river, standing] : [standing];
 }
 
 function terrainRiverChance(profile: TerrainModel["profile"], configured: number): number {
@@ -138,7 +153,12 @@ export function integrateRiverCrossings(roads: RoadNetwork, river: River): RoadN
         const splits = [{ t: 0, point: a, crossing: false }, { t: 1, point: b, crossing: false }];
         for (let i = 1; i < river.path.length; i++) {
             const hit = segmentIntersection(a, b, river.path[i - 1], river.path[i]);
-            if (hit && hit.t > 1e-6 && hit.t < 1 - 1e-6) splits.push({ t: hit.t, point: hit.point, crossing: true });
+            if (!hit) continue;
+            // A crossing at a road vertex (a deliberate ford anchored on the river
+            // centerline) marks that endpoint; an interior crossing adds a split.
+            if (hit.t <= 1e-6) splits[0].crossing = true;
+            else if (hit.t >= 1 - 1e-6) splits[1].crossing = true;
+            else splits.push({ t: hit.t, point: hit.point, crossing: true });
         }
         splits.sort((left, right) => left.t - right.t);
         const unique = splits.filter((split, index) => index === 0 || split.t - splits[index - 1].t > 1e-6);

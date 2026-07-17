@@ -9,7 +9,7 @@ import { generateParcels } from "./stages/parcels";
 import { generateBuildings } from "./stages/buildings";
 import { generateLayout } from "./stages/layout";
 import { generateApproaches } from "./stages/approaches";
-import { generateHydrology, integrateRiverCrossings } from "./stages/water";
+import { resolveRiver, resolveStandingWater, integrateRiverCrossings } from "./stages/water";
 import { bounds as polygonBounds } from "./geometry/polygon";
 import { applyHydrology, generateTerrain } from "./stages/terrain";
 import { selectSettlementSite } from "./stages/site";
@@ -67,6 +67,17 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         terrainProfile: terrain.profile,
     });
 
+    // Resolve the river before roads so the road stage can cross it deliberately;
+    // standing water is resolved after roads (below) from the same stream.
+    const hydrologyRng = rng.stream("hydrology");
+    const river = resolveRiver(hydrologyRng, {
+        terrain,
+        boundary,
+        radius: p.radius,
+        riverChance: p.riverChance,
+        riverWidth: p.riverWidth,
+    });
+
     const internalRoads = generateRoads(rng.stream("roads"), {
         boundary,
         radius: p.radius,
@@ -82,6 +93,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         frontage: p.lotWidth,
         layout: settlement,
         terrain,
+        river,
     });
     const approachedRoads = generateApproaches(rng.stream("approaches"), {
         boundary,
@@ -91,16 +103,15 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         maxCount: p.approachRoadMax,
         width: p.primaryRoadWidth,
     });
-    const water = generateHydrology(rng.stream("hydrology"), {
+    const standingWater = resolveStandingWater(hydrologyRng, {
         terrain,
         boundary,
         radius: p.radius,
-        riverChance: p.riverChance,
-        riverWidth: p.riverWidth,
         standingWaterKind: p.standingWaterKind,
         roads: approachedRoads,
+        river,
     });
-    const river = water.find((body): body is Extract<typeof body, { kind: "river" }> => body.kind === "river");
+    const water = river ? [river, standingWater] : [standingWater];
     const terrainWithHydrology = applyHydrology(terrain, water);
     const site = preliminarySite;
     const roads = river ? integrateRiverCrossings(approachedRoads, river) : approachedRoads;

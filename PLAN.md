@@ -620,22 +620,29 @@ and cross water at deliberate points.
   steeper than `MAX_ROAD_SLOPE`. The must-have spine is never dropped, so the graph stays connected.
   Roads see the pre-hydrology terrain, so they avoid height-field water; river crossings stay the
   job of `integrateRiverCrossings`.
-- **[ ] M12b — deliberate river crossings.** Generate the river early (from terrain) so roads can
-  choose a narrow, low-slope bank crossing before planarization instead of accepting whatever
-  intersection occurs; carry the chosen-site rationale on the crossing node. Requires splitting the
-  hydrology stage so the river precedes roads while standing water still follows them.
+- **[x] M12b — deliberate river crossings.** The hydrology stage is split so the river is resolved
+  *before* roads (from the same `hydrology` stream, preserving draw order) while standing water
+  still follows them. The clustered generator treats the river channel as an obstacle — roads are
+  dropped where they would cross open water — except at a chosen **ford**: the gentlest, most
+  central bank point (`chooseFords`). The trunk is anchored to cross there, so the one river
+  crossing is deliberate and the village stays connected across the banks. `integrateRiverCrossings`
+  was hardened to flag crossings that land on a river-centerline vertex (which a ford does), not
+  only interior crossings. A straight trunk can still incidentally re-cross a meander; making every
+  crossing deliberate (and profile-form crossings) is left to M12d.
 - **[ ] M12c — height-field hydrology geometry (M10 carryover).** Trace river channels down the
   gradient to a lake or coast and shorelines along the sub-sea-level contour, replacing the
   profile-heuristic placement so banks and shores are real terrain features.
-- **[ ] M12d — profile-form & approach corridors.** Extend terrain-constrained routing to the
-  non-`haufendorf` profiles, and make approaches and primaries enter the site through terrain gaps
-  (valley mouths, shore edges).
+- **[ ] M12d — profile-form & approach corridors.** Extend terrain-constrained routing (and ford
+  crossings) to the non-`haufendorf` profiles; make approaches and primaries enter the site through
+  terrain gaps (valley mouths, shore edges); and suppress the trunk's incidental re-crossings of a
+  meander so *every* crossing is a chosen ford.
 
 **Test plan:**
 - **Invariants:** no accepted road segment exceeds the traversable-slope threshold beyond tolerance
   and none lies on water *(M12a — asserted against the base terrain roads consume, across relief
-  profiles and seeds)*; every river crossing is a flagged bridge node at a low-slope bank *(M12b)*;
-  graph stays connected and planar; approaches still reach the terrain edge.
+  profiles and seeds)*; a river-straddling village stays a single connected component and its best
+  bridge sits at the gentlest bank the river offers inside the settlement *(M12b)*; graph stays
+  connected and planar; approaches still reach the terrain edge.
 - **Determinism + stream isolation; golden SVG.** The road-topology invariants pin `plain` terrain
   so they exercise the algorithm independent of relief; a separate suite covers relief behavior.
 

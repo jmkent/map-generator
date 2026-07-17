@@ -24,21 +24,22 @@ feel inhabited.
 seed + parameters
         |
         v
-named RNG streams -> terrain -> boundary -> site -> settlement layout -> roads -> approaches
-                                                                                     |
-                                        buildings <- parcels <- hydrology (+ river crossings) <-
-                                            |
-                                            v
-                                        MapModel -> Babylon renderer / SVG debug + goldens
+named RNG streams -> terrain -> boundary -> site -> settlement layout -> river -> roads -> approaches
+                                                                                            |
+                        buildings <- parcels <- standing water + river crossings <----------
+                            |
+                            v
+                        MapModel -> Babylon renderer / SVG debug + goldens
 ```
 
 Two ordering details are worth noting. The **boundary is generated at the origin,
 then translated onto the chosen site**, so siting happens between the raw outline
-and everything that depends on its final position. And **hydrology now runs after
-roads**: the landform decides *whether* there is a river and *what kind* of
-standing water exists up front, but the closed bodies are placed so they avoid the
-road graph, and river/road crossings are stitched in immediately afterwards.
-Parcels and buildings still see water as a hard constraint.
+and everything that depends on its final position. And **hydrology straddles the
+road stage**: the river is resolved *before* roads so the road network can cross
+it at a chosen ford, while standing water (ponds, lakes, coast) is resolved *after*
+roads so the closed bodies can avoid the road graph. Both draw from one `hydrology`
+stream in that order, so the water is deterministic and independent of road
+parameters. Parcels and buildings still see all water as a hard constraint.
 
 `MapModel` is the shared description of the village. It contains data only;
 rendering does not make layout choices. That separation means a visual problem
@@ -96,11 +97,12 @@ short for houses or whether a connection is too close to an existing junction.
 1. Generate the terrain: a local height field with slope and buildability.
 2. Make the settlement outline, then site it on connected buildable land.
 3. Resolve the settlement form and reserve civic land.
-4. Make roads within that outline and around any reserved land.
-5. Extend selected primary routes into the countryside.
-6. Resolve hydrology from the landform and stitch river crossings into the roads.
-7. Make roadside lots from the roads, clear of water.
-8. Put buildings into viable lots.
+4. Resolve the river from the landform, so roads can cross it deliberately.
+5. Make roads within that outline, around reserved land, and across the river at a ford.
+6. Extend selected primary routes into the countryside.
+7. Resolve standing water clear of the roads, and stitch river crossings into the graph.
+8. Make roadside lots from the roads, clear of water.
+9. Put buildings into viable lots.
 
 Map bounds come straight from the terrain extent, so framing no longer needs a
 separate derivation step. The village bounds are the bounding box of the sited
@@ -295,9 +297,9 @@ street make a useful contribution without preventing nearby homes?
   terrain-derived layout axis), searching nearby orientations to keep off water
   and steep ground, while cross streets, connectors, and lanes that would cross
   water or a steep face are simply dropped. The trunk is never dropped, so the
-  network keeps a connected spine even on constrained ground. Roads read the
-  terrain *before* hydrology, so they avoid height-field water; a river placed
-  afterwards is still handled by bridge crossings.
+  network keeps a connected spine even on constrained ground. A river present
+  before roads (M12b) counts as water too: roads may only enter its channel at the
+  chosen ford, and the trunk is anchored to make that one deliberate crossing.
 - Secondary and lane targets are budgets. Failed candidates do not trigger a
   replacement orphan road elsewhere.
 
@@ -346,40 +348,54 @@ planarized again so this remains a single routing model.
 ### 8. Resolve hydrology from the landform
 
 Water is still structural — it constrains where houses go — but it is now chosen
-*by the terrain* rather than by standalone water parameters. `generateHydrology`
-in `src/gen/stages/water.ts` uses the `hydrology` stream and the terrain profile
-to decide two things: whether there is a river (a river-valley almost always has
-one; a ridge, hillside, or island rarely does) and what kind of standing water the
+*by the terrain* rather than by standalone water parameters, and it is resolved in
+two parts from the `hydrology` stream (`src/gen/stages/water.ts`). The terrain
+profile decides whether there is a river (a river-valley almost always has one; a
+ridge, hillside, or island rarely does) and what kind of standing water the
 landform implies (a lakeshore gets a lake; coast, cove, peninsula, and island get
 a coastline; otherwise a pond). An explicit `riverChance` or `standingWaterKind`
 still overrides the terrain's choice.
 
-The river itself is a restrained Catmull-Rom channel spanning the terrain extent
-from one edge to the opposite. Its centerline is only the routing reference; the
-visible channel is matching left and right bank samples whose width changes
-gradually, so the water is not a ruler-straight ribbon. Ponds and lakes are
-seeded organic outlines placed in open village land clear of the river and the
-existing road corridors; coast is a map-edge reserve on a side without an approach
-road, leaving the village on the land side. This is why hydrology runs *after*
-roads: the closed bodies need the road graph to avoid, even though the decision to
-have them was made from the terrain up front.
+The two parts sit on opposite sides of the road stage. `resolveRiver` runs
+*before* roads, so the road stage can cross the river deliberately (see below);
+`resolveStandingWater` runs *after* roads, because closed bodies need the road
+graph to avoid. Both draw from the same stream in that fixed order, so splitting
+them does not change the sequence: for a seed the river is byte-identical whether
+or not road parameters change. The river is a restrained Catmull-Rom channel
+spanning the terrain extent from one edge to the opposite; its centerline is the
+routing reference, and matching left and right bank samples with gradually varying
+width give it an organic edge. Ponds and lakes are seeded organic outlines placed
+in open village land clear of the river and the road corridors; coast is a
+map-edge reserve on a side without an approach road, leaving the village on the
+land side.
 
-Two things happen once the water is placed. Each road-channel intersection is
-split into a shared road node marked `crossing: "bridge"`, so a village divided by
-a river stays connected only through legible crossings on a single planar graph.
-And `applyHydrology` marks every terrain sample under a channel or closed body as
-non-land and non-buildable, and records the bodies on `terrain.hydrology` (kept
-equal to `MapModel.water`), so the buildable surface reflects the water actually
-present. All closed bodies are hard exclusions for lots and buildings, and their
-shorelines add a modest density preference — strongest for lakes and coast — via a
-bounded bank-proximity multiplier that favors lots near, not in, the water. The
-water mesher fan-triangulates closed polygons alongside its river ribbons, so one
-`MapModel.water` dataset drives both Babylon and SVG.
+A river that reaches the settlement is treated as an **obstacle with one chosen
+crossing** (M12b). The clustered road generator forbids roads from entering the
+open channel except near a *ford* — `chooseFords` scores centerline points inside
+the buildable area for gentle banks, a narrow channel, and centrality, and keeps
+the best one. The trunk is anchored to cross there, so the single deliberate
+crossing sits on stable ground; any other road that would cross the water is
+dropped, and the two banks stay connected through the ford. `integrateRiverCrossings`
+then splits each road-channel intersection into a shared node marked
+`crossing: "bridge"` — including crossings that fall exactly on a river-centerline
+vertex, which a ford does. A straight trunk can still incidentally re-cross a
+meander; removing those, and extending fords to the other settlement profiles, is
+deferred to M12d.
 
-At this stage the terrain *selects* and *excludes* water but does not yet *shape*
-it: rivers still span edge-to-edge rather than descending the height gradient, and
-shorelines are heuristic rather than traced from the sub-sea-level contour. Tracing
-channel and shore geometry from the height field is deferred to M12.
+Finally, `applyHydrology` marks every terrain sample under a channel or closed
+body as non-land and non-buildable, and records the bodies on `terrain.hydrology`
+(kept equal to `MapModel.water`), so the buildable surface reflects the water
+actually present. All closed bodies are hard exclusions for lots and buildings,
+and their shorelines add a modest density preference — strongest for lakes and
+coast — via a bounded bank-proximity multiplier that favors lots near, not in, the
+water. The water mesher fan-triangulates closed polygons alongside its river
+ribbons, so one `MapModel.water` dataset drives both Babylon and SVG.
+
+The terrain *selects*, *positions the crossing of*, and *excludes* water, but does
+not yet *shape* it: rivers still span edge-to-edge rather than descending the
+height gradient, and shorelines are heuristic rather than traced from the
+sub-sea-level contour. Tracing channel and shore geometry from the height field is
+deferred to M12c.
 
 ### 9. Turn useful street frontage into parcels
 
@@ -442,11 +458,12 @@ the height field. The remaining work completes that handover, and only then pain
 decoration on top:
 
 - **M12 terrain-constrained roads & crossings:** the clustered generator now routes
-  roads onto traversable land and runs the trunk with the terrain grain (M12a).
-  Still to come: choosing river crossings at stable bank points by generating the
-  river before roads (M12b), tracing channel and shore geometry from the height
-  field instead of the current heuristics (M12c), and extending both to the other
-  settlement profiles and the approach corridors (M12d).
+  roads onto traversable land and runs the trunk with the terrain grain (M12a), and
+  crosses a bisecting river at a single deliberate ford chosen for gentle banks
+  (M12b). Still to come: tracing channel and shore geometry from the height field
+  instead of the current heuristics (M12c), and extending terrain routing and fords
+  to the other settlement profiles and the approach corridors, including removing a
+  trunk's incidental re-crossings of a meander (M12d).
 - **M13 terrain-constrained parcels, buildings & siting refinement:** exclude
   water, floodplain, steep, and inaccessible land from lots and houses; weight
   density by buildability; and derive the settlement envelope and morphology from

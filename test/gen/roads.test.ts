@@ -138,7 +138,7 @@ describe("approach roads", () => {
 });
 
 it('can close local blocks with secondary connectors for seed "waxony"', () => {
-    const net = generateVillage("waxony", { settlementProfile: "haufendorf", terrainProfile: "plain" }).roads;
+    const net = generateVillage("waxony", { settlementProfile: "haufendorf", terrainProfile: "plain", riverChance: 0 }).roads;
     expect(net.edges.length - net.nodes.length + componentCount(net)).toBeGreaterThanOrEqual(1);
 });
 
@@ -214,6 +214,60 @@ describe("terrain-constrained roads (M12)", () => {
         expect(generateVillage("island-town", { terrainProfile: "island" }).roads)
             .toEqual(generateVillage("island-town", { terrainProfile: "island" }).roads);
     });
+});
+
+describe("deliberate river crossings (M12b)", () => {
+    // Profiles with slope variation along the shore make the gentle-bank choice
+    // meaningful rather than trivially satisfied.
+    const CASES = [
+        { seed: "village", profile: "coast" },
+        { seed: "hamlet", profile: "cove" },
+        { seed: "riverford", profile: "peninsula" },
+        { seed: "tarry", profile: "plain" },
+        { seed: "brook", profile: "lakeshore" },
+    ] as const;
+
+    for (const { seed, profile } of CASES) {
+        it(`crosses "${seed}" on ${profile} at the gentlest available bank`, () => {
+            const model = generateVillage(seed, { settlementProfile: "haufendorf", terrainProfile: profile, riverChance: 1 });
+            const river = model.water.find((body) => body.kind === "river");
+            expect(river, "expected a river with riverChance 1").toBeDefined();
+            if (!river || river.kind !== "river") return;
+
+            const net = model.roads;
+            // The village straddles the river but stays one connected place: the
+            // deliberate crossing links the banks.
+            expect(componentCount(net)).toBe(1);
+            const bridges = net.nodes.filter((node) => node.crossing === "bridge");
+            expect(bridges.length).toBeGreaterThanOrEqual(1);
+
+            // Reconstruct the base terrain the road stage saw when choosing the ford.
+            const base = generateTerrain(createRng(seed).stream("terrain"), { radius: DEFAULT_PARAMS.radius, profile });
+            const bankSlopeAt = (i: number): number => Math.max(
+                terrainSampleAt(base, river.leftBank[i]).slope,
+                terrainSampleAt(base, river.rightBank[i]).slope,
+            );
+
+            // Gentlest bank the river offers inside the settlement.
+            let gentlest = Infinity;
+            for (let i = 0; i < river.path.length; i++) {
+                if (contains(model.boundary, river.path[i])) gentlest = Math.min(gentlest, bankSlopeAt(i));
+            }
+
+            // The best crossing sits at (near) that gentlest bank — the ford was
+            // chosen deliberately, not wherever a road happened to meet the water.
+            const crossingBankSlopes = bridges.map((bridge) => {
+                let nearest = 0;
+                let best = Infinity;
+                for (let i = 0; i < river.path.length; i++) {
+                    const d = Math.hypot(river.path[i].x - bridge.pos.x, river.path[i].y - bridge.pos.y);
+                    if (d < best) { best = d; nearest = i; }
+                }
+                return bankSlopeAt(nearest);
+            });
+            expect(Math.min(...crossingBankSlopes)).toBeLessThanOrEqual(gentlest + 0.06);
+        });
+    }
 });
 
 function insideBounds(bounds: { minX: number; minY: number; maxX: number; maxY: number }, point: Pt): boolean {

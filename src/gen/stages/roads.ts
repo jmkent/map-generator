@@ -9,12 +9,13 @@
 // existing corridors. The soup of segments is handed to `planarize`, which splits
 // every crossing into a shared node.
 
-import type { Polygon, RoadClass, RoadNetwork, SettlementLayout, TerrainModel, Vec2 } from "../types";
+import type { Polygon, River, RoadClass, RoadNetwork, SettlementLayout, TerrainModel, Vec2 } from "../types";
 import type { Rng } from "../rng";
 import { centroid, contains, distanceToBoundary, inset, intersectRayPolygon } from "../geometry/polygon";
 import { catmullRom } from "../geometry/catmullRom";
 import { planarize, type SegmentInput } from "../geometry/graph";
 import { terrainSampleAt } from "./terrain";
+import { distanceToRiver } from "./water";
 import { add, dist, normalize, perp, scale, sub } from "../geometry/vec2";
 
 export interface RoadParams {
@@ -39,6 +40,8 @@ export interface RoadParams {
     layout: SettlementLayout;
     /** Terrain substrate; roads avoid water and slopes steeper than they can climb. */
     terrain?: TerrainModel;
+    /** Structural river; roads only cross it at a chosen ford (M12b). */
+    river?: River;
 }
 
 const MIN_EDGE_LEN = 1e-3;
@@ -46,6 +49,13 @@ const MIN_LANE_LOTS = 2;
 // Roads may climb somewhat steeper ground than a lot can sit on (buildable is
 // slope < 0.22), but they never cross water or genuinely steep terrain.
 const MAX_ROAD_SLOPE = 0.32;
+
+interface Ford {
+    /** Crossing point on the river centerline. */
+    point: Vec2;
+    /** Direction a road should take across the river here (perpendicular to it). */
+    axis: Vec2;
+}
 
 interface RoadGenerationContext {
     rng: Rng;
@@ -56,19 +66,65 @@ interface RoadGenerationContext {
     jitter: number;
     samples: number;
     terrain?: TerrainModel;
+    river?: River;
+    /** Points where roads are permitted to enter the river channel. */
+    fords: Vec2[];
+    /** How close to a ford a channel point must be to be crossable. */
+    fordRadius: number;
 }
 
-/** A point roads may occupy: dry land no steeper than they can traverse. */
-function traversablePoint(terrain: TerrainModel | undefined, point: Vec2): boolean {
-    if (!terrain) return true;
-    const sample = terrainSampleAt(terrain, point);
-    return sample.land && sample.slope <= MAX_ROAD_SLOPE;
+/** A point roads may occupy: dry, climbable land, and out of the river channel
+ *  unless it sits at a chosen ford. */
+function traversablePoint(context: RoadGenerationContext, point: Vec2): boolean {
+    if (context.terrain) {
+        const sample = terrainSampleAt(context.terrain, point);
+        if (!sample.land || sample.slope > MAX_ROAD_SLOPE) return false;
+    }
+    if (context.river && inChannel(context.river, point) && !nearFord(context, point)) return false;
+    return true;
+}
+
+/** True when a point lies within the flowing water of the river channel. */
+function inChannel(river: River, point: Vec2): boolean {
+    return distanceToRiver(point, river) <= river.width * 0.6;
+}
+
+function nearFord(context: RoadGenerationContext, point: Vec2): boolean {
+    return context.fords.some((ford) => dist(ford, point) <= context.fordRadius);
+}
+
+/** Choose the gentlest, most central crossing on the river within the settlement.
+ *  Returns nothing when the river does not reach the buildable area. */
+function chooseFords(river: River, safeArea: Polygon, terrain: TerrainModel | undefined, radius: number): Ford[] {
+    const center = centroid(safeArea);
+    let best: { index: number; score: number } | undefined;
+    for (let i = 0; i < river.path.length; i++) {
+        const point = river.path[i];
+        if (!contains(safeArea, point)) continue;
+        const bankSlope = terrain
+            ? Math.max(
+                terrainSampleAt(terrain, river.leftBank[i]).slope,
+                terrainSampleAt(terrain, river.rightBank[i]).slope,
+                terrainSampleAt(terrain, point).slope,
+            )
+            : 0;
+        const width = dist(river.leftBank[i], river.rightBank[i]);
+        // Prefer gentle banks first, then a narrow channel, then a central site.
+        const score = bankSlope * 3 + (width / river.width) * 0.4 + (dist(point, center) / radius) * 0.5;
+        if (!best || score < best.score) best = { index: i, score };
+    }
+    if (!best) return [];
+    const i = best.index;
+    const before = river.path[Math.max(0, i - 1)];
+    const after = river.path[Math.min(river.path.length - 1, i + 1)];
+    const axis = normalize(perp(sub(after, before)));
+    return [{ point: river.path[i], axis }];
 }
 
 function untraversableCount(context: RoadGenerationContext, points: readonly Vec2[]): number {
-    if (!context.terrain) return 0;
+    if (!context.terrain && !context.river) return 0;
     let count = 0;
-    for (const point of points) if (!traversablePoint(context.terrain, point)) count++;
+    for (const point of points) if (!traversablePoint(context, point)) count++;
     return count;
 }
 
@@ -130,6 +186,7 @@ export function generateRoads(rng: Rng, params: RoadParams): RoadNetwork {
     };
 
     const primaryAnchorSpacing = Math.max(params.frontage * 2.5, radius * 0.18);
+    const fords = params.river ? chooseFords(params.river, safeArea, params.terrain, radius) : [];
     const context: RoadGenerationContext = {
         rng,
         safeArea,
@@ -139,18 +196,28 @@ export function generateRoads(rng: Rng, params: RoadParams): RoadNetwork {
         jitter,
         samples,
         terrain: params.terrain,
+        river: params.river,
+        fords: fords.map((ford) => ford.point),
+        fordRadius: params.river ? params.river.width * 1.1 : 0,
     };
 
     // Primary through-roads. Start with a trunk, then place mostly parallel cross
     // streets at separated points on it. This is a compact, intentionally loose
     // grid: irregular enough to avoid a city-block pattern, but still legible.
     // The trunk runs with the terrain grain (the terrain-derived layout axis) so
-    // the settlement follows valleys, ridgelines, and shorelines.
+    // the settlement follows valleys, ridgelines, and shorelines. When a river
+    // bisects the village, the trunk instead crosses it at the chosen ford, so the
+    // one river crossing is deliberate and every other road keeps off the water.
     const primaryRoutes: Route[] = [];
     const primaryAnchors: Vec2[] = [];
     const baseAngle = Math.atan2(params.layout.axis.y, params.layout.axis.x) + rng.float(-0.3, 0.3);
-    const trunkAxis: Vec2 = { x: Math.cos(baseAngle), y: Math.sin(baseAngle) };
-    const trunk = bestThroughRoad(context, trunkAnchor, trunkAxis);
+    let trunkOrigin = trunkAnchor;
+    let trunkAxis: Vec2 = { x: Math.cos(baseAngle), y: Math.sin(baseAngle) };
+    if (fords.length > 0) {
+        trunkOrigin = fords[0].point;
+        trunkAxis = fords[0].axis;
+    }
+    const trunk = bestThroughRoad(context, trunkOrigin, trunkAxis);
     primaryRoutes.push({ kind: "primary", points: trunk });
     pushPolyline(trunk, "primary", params.primaryWidth);
 
@@ -224,6 +291,11 @@ function generateProfileRoads(rng: Rng, params: RoadParams): RoadNetwork {
         jitter: params.jitter,
         samples: params.samples,
         terrain: params.terrain,
+        river: params.river,
+        // Profile forms do not yet gate on terrain or the river (M12d); these keep
+        // the context well-formed without changing their routing.
+        fords: [],
+        fordRadius: 0,
     };
     const segments: SegmentInput[] = [];
     const addRoute = (points: Vec2[], kind: RoadClass, width: number): void => {
