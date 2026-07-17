@@ -6,6 +6,7 @@ import type {
     ResolvedSettlementProfile,
     SettlementLayout,
     SettlementProfile,
+    ResolvedTerrainProfile,
     Vec2,
 } from "../types";
 import type { Rng } from "../rng";
@@ -16,6 +17,7 @@ export interface LayoutParams {
     boundary: Polygon;
     radius: number;
     profile: SettlementProfile;
+    terrainProfile?: ResolvedTerrainProfile;
 }
 
 const AUTO_PROFILES: ResolvedSettlementProfile[] = ["haufendorf", "reihendorf", "tenement", "angerdorf", "weiler", "rundling", "estate"];
@@ -23,7 +25,7 @@ const AUTO_PROFILES: ResolvedSettlementProfile[] = ["haufendorf", "reihendorf", 
 export function generateLayout(rng: Rng, params: LayoutParams): SettlementLayout {
     const profile = params.profile === "auto" ? rng.pick(AUTO_PROFILES) : params.profile;
     const center = centroid(params.boundary);
-    const angle = rng.float(0, Math.PI);
+    const angle = terrainAxis(params.terrainProfile) ?? rng.float(0, Math.PI);
     const axis = { x: Math.cos(angle), y: Math.sin(angle) };
     const anchor = add(center, { x: rng.float(-params.radius * 0.05, params.radius * 0.05), y: rng.float(-params.radius * 0.05, params.radius * 0.05) });
     const safeAnchor = contains(params.boundary, anchor) ? anchor : center;
@@ -40,6 +42,13 @@ export function generateLayout(rng: Rng, params: LayoutParams): SettlementLayout
     } as const;
     const picked = attributes[profile];
     return { profile, ...picked, anchor: safeAnchor, axis: normalize(axis), civicSpaces };
+}
+
+function terrainAxis(profile: ResolvedTerrainProfile | undefined): number | undefined {
+    if (profile === "river-valley" || profile === "ridge") return Math.PI / 2;
+    if (profile === "lakeshore" || profile === "coast" || profile === "cove" || profile === "peninsula") return 0;
+    if (profile === "hillside") return Math.PI * 0.25;
+    return undefined;
 }
 
 function green(profile: ResolvedSettlementProfile, center: Vec2, axis: Vec2, radius: number): CivicSpace {

@@ -475,41 +475,36 @@ hugging the shore; ponds dotting the interior.
   dock road terminates at the shore.
 - **Determinism + golden + mesher.**
 
-### [ ] M9 — Decorative terrain (fields & woodlands)
-Now purely cosmetic: `terrain.ts` fills the countryside inside `mapBounds` that is left over
-after water + settlement. Farmland fields as relaxed Voronoi patches (wire in `d3-delaunay`
-here), woodlands as thin-instanced trees under a density mask, grass. `groundMesher.ts`
-renders material-zoned ground. No layout constraints — this is the decorative half of the
-structural/decorative split.
+### [ ] M9 — Terrain substrate & visible relief
+Generate terrain before settlement. A seed selects an inland plain, river valley, lakeshore,
+open coast, cove, peninsula, ridge, hillside, or island. A local landscape roughly three
+settlement diameters wide supplies a height field, land mask, slope, buildability classification,
+and raised terrain mesh. The initial analytical model and renderer are in place; the remaining
+milestones replace legacy boundary and water ownership.
 
-**Deliverable:** houses sit in a landscape; roads run out through fields to the edge; woods
-fill the hills.
+### [ ] M10 — Terrain-owned hydrology
+Derive coasts, coves, peninsulas, lakes, drainage, floodplains, and rivers from terrain. Rivers
+descend to a lake or coast; shoreline and bank geometry replace arbitrary water placement.
 
-**Test plan:**
-- **Voronoi wrapper:** cells partition the target region; relaxation converges (centroid
-  drift decreases across iterations); determinism preserved through the lib.
-- **Terrain invariants:** cells partition the non-built, non-water area; no cell overlaps a
-  building or water body; forest samples respect the density mask, boundary, and water.
-- **Golden:** SVG snapshots including terrain zones.
-- **Mesher (headless):** ground `GeometryData` covers bounds; zone material assignment
-  matches cell types; tree instance count matches sampled points.
+### [ ] M11 — Settlement siting & envelope
+Select connected, stable buildable land and derive the settlement envelope from it. Terrain
+compatibility resolves morphology preferences and diagnostics report the resulting site choice.
 
-### [ ] M10 — Interactivity & polish
-Seed input + regenerate; a few param sliders (village size, density, "has river");
-click-to-inspect via `pickAsync`; screenshot export via `captureScreenshot`; full param
-set encoded in the shareable URL; perspective-camera toggle.
+### [ ] M12 — Terrain-constrained roads & crossings
+Build circulation around traversable slopes, valleys, shore corridors, ridges, and passes.
+Choose bridges at useful, stable river crossings before planarizing the road graph.
 
-**Deliverable:** interactive, shareable generator.
+### [ ] M13 — Terrain-constrained parcels & buildings
+Exclude water, floodplain, steep land, and inaccessible remnants. Density and civic space follow
+terrain-supported frontage, water access, and viable land.
 
-**Test plan:**
-- `urlState`: full param set round-trips; back/forward navigation regenerates
-  deterministically.
-- `controls`: regenerate with same seed+params yields identical model; changing a param
-  changes only the expected sub-model.
-- Picking maps a hit to the correct `MapModel` entity (test the pure hit→entity resolver,
-  not the GPU pick).
-- **Optional later tier:** pixel/screenshot regression via Playwright or vitest-browser
-  (`captureScreenshot`) — not part of MVP.
+### [ ] M14 — Land cover & countryside structure
+Add fields, woodland, grassland, and exposed terrain after settlement placement. Fields occupy
+workable connected land; woods favor steep, remote, or unsuitable land.
+
+### [ ] M15 — Interactivity & terrain diagnostics
+Expose terrain profile, hydrology, buildability, exclusions, siting, and bridges through controls,
+URL state, and inspection overlays. Screenshot export, picking, and perspective polish follow.
 
 ---
 

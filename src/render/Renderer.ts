@@ -6,9 +6,7 @@ import {
     createEngine,
     createSceneContext,
     createHemisphericLight,
-    createGround,
     createStandardMaterial,
-    createGridMaterial,
     createMeshFromData,
     createBox,
     addThinInstance,
@@ -22,12 +20,12 @@ import {
 } from "@babylonjs/lite";
 
 import type { MapModel } from "../gen/types";
-import { boundsCenter, boundsSize } from "../gen/types";
 import { createStageCamera, applyStageFraming } from "./camera";
 import { boundaryGeometry } from "./meshers/boundaryMesher";
 import { roadGeometry } from "./meshers/roadMesher";
 import { buildingInstances } from "./meshers/buildingMesher";
 import { waterGeometry } from "./meshers/waterMesher";
+import { terrainGeometry } from "./meshers/terrainMesher";
 
 export interface Renderer {
     engine: EngineContext;
@@ -49,25 +47,20 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
     scene.clearColor = { r: 0.05, g: 0.06, b: 0.08, a: 1.0 };
 
     const bounds = model.mapBounds;
-    const center = boundsCenter(bounds);
-    const { width, height } = boundsSize(bounds);
 
-    // Transparent reference grid across the model bounds, at y=0.
-    const grid = createGround(engine, { width, height });
-    grid.position.set(center.x, 0, center.y);
-    grid.material = createGridMaterial({
-        mainColor: [0.08, 0.1, 0.13],
-        lineColor: [0.35, 0.4, 0.48],
-        gridRatio: 10,
-        majorUnitFrequency: 5,
-        minorUnitVisibility: 0.5,
-        opacity: 0.6,
-    });
-    grid.pickable = false;
-    addToScene(scene, grid);
+    const terrainGeo = terrainGeometry(model.terrain);
+    const terrainMesh = createMeshFromData(engine, "terrain", terrainGeo.positions, terrainGeo.normals, terrainGeo.indices);
+    const terrainMat = createStandardMaterial();
+    terrainMat.diffuseColor = model.terrain.profile === "coast" || model.terrain.profile === "cove" || model.terrain.profile === "peninsula" || model.terrain.profile === "island"
+        ? [0.18, 0.38, 0.2]
+        : [0.22, 0.46, 0.24];
+    terrainMat.specularColor = [0.02, 0.02, 0.02];
+    terrainMesh.material = terrainMat;
+    terrainMesh.pickable = false;
+    addToScene(scene, terrainMesh);
 
     // Boundary polygon as a flat green patch, just above the grid.
-    const geo = boundaryGeometry(model.boundary, 0.02);
+    const geo = boundaryGeometry(model.boundary, 0.09);
     const boundaryMesh = createMeshFromData(engine, "boundary", geo.positions, geo.normals, geo.indices);
     const boundaryMat = createStandardMaterial();
     boundaryMat.diffuseColor = [0.15, 0.45, 0.2];
@@ -78,7 +71,7 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
     // Civic greens are reserved land: render them above the general ground and
     // below roads so their placement is legible in the interactive view.
     for (const [index, space] of model.civicSpaces.entries()) {
-        const civicGeo = boundaryGeometry(space.polygon, 0.03);
+        const civicGeo = boundaryGeometry(space.polygon, 0.1);
         const civicMesh = createMeshFromData(engine, `civic-${index}`, civicGeo.positions, civicGeo.normals, civicGeo.indices);
         const civicMat = createStandardMaterial();
         civicMat.diffuseColor = [0.3, 0.58, 0.32];
@@ -90,7 +83,7 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
 
     // Keep water clearly above the terrain depth plane, while leaving roads on
     // top so bridge crossings retain their visual hierarchy.
-    const waterGeo = waterGeometry(model.water, 0.06);
+    const waterGeo = waterGeometry(model.water, 0.12);
     if (waterGeo.indices.length > 0) {
         const waterMesh = createMeshFromData(engine, "water", waterGeo.positions, waterGeo.normals, waterGeo.indices);
         const waterMat = createStandardMaterial();
@@ -105,7 +98,7 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
     }
 
     // Roads as flat ribbons, above the boundary patch.
-    const roadGeo = roadGeometry(model.roads, 0.08);
+    const roadGeo = roadGeometry(model.roads, 0.14);
     if (roadGeo.indices.length > 0) {
         const roadMesh = createMeshFromData(engine, "roads", roadGeo.positions, roadGeo.normals, roadGeo.indices);
         const roadMat = createStandardMaterial();

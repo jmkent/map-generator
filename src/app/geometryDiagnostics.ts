@@ -19,6 +19,7 @@ export function geometryDiagnostics(model: MapModel): string[] {
     const bridges = model.roads.nodes.filter((node) => node.crossing === "bridge").length;
 
     return [
+        `terrain: ${model.terrain.profile}; ${buildablePercent(model.terrain.samples)}% buildable`,
         `layout: ${model.settlement.profile}`,
         `roads: ${model.roads.nodes.length} nodes, ${model.roads.edges.length} segments (${roadCounts})`,
         water,
@@ -26,6 +27,10 @@ export function geometryDiagnostics(model: MapModel): string[] {
         `civic spaces: ${model.civicSpaces.length}`,
         `parcels: ${model.parcels.length}; buildings: ${model.buildings.length}`,
     ];
+}
+
+function buildablePercent(samples: Array<{ buildable: boolean }>): number {
+    return Math.round(samples.filter((sample) => sample.buildable).length / samples.length * 100);
 }
 
 function waterNames(water: Array<Exclude<WaterBody, { kind: "river" }>>): string {

@@ -10,12 +10,14 @@ import { generateBuildings } from "./stages/buildings";
 import { generateLayout } from "./stages/layout";
 import { generateApproaches } from "./stages/approaches";
 import { generateRiver, generateStandingWater, integrateRiverCrossings } from "./stages/water";
-import { bounds as polygonBounds, expandBounds } from "./geometry/polygon";
+import { bounds as polygonBounds } from "./geometry/polygon";
+import { generateTerrain } from "./stages/terrain";
 
 export const DEFAULT_PARAMS: VillageParams = {
     radius: 125,
     boundaryPoints: 36,
     boundaryIrregularity: 0.18,
+    terrainProfile: "auto",
     settlementProfile: "auto",
     countrysideMargin: 0.32,
     approachRoadMin: 2,
@@ -45,6 +47,7 @@ export const DEFAULT_PARAMS: VillageParams = {
 export function generateVillage(seed: string, params: Partial<VillageParams> = {}): MapModel {
     const p: VillageParams = { ...DEFAULT_PARAMS, ...params };
     const rng = createRng(seed);
+    const terrain = generateTerrain(rng.stream("terrain"), { radius: p.radius, profile: p.terrainProfile });
 
     const boundary = generateBoundary(rng.stream("boundary"), {
         radius: p.radius,
@@ -53,15 +56,17 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
     });
 
     const bounds = polygonBounds(boundary);
-    const mapBounds = expandBounds(bounds, p.radius * p.countrysideMargin);
+    const mapBounds = terrain.bounds;
     const waterRng = rng.stream("water");
-    const river = waterRng.chance(p.riverChance)
+    const riverProbability = terrainRiverProbability(terrain.profile, p.riverChance);
+    const river = waterRng.chance(riverProbability)
         ? generateRiver(waterRng, { boundary, mapBounds, radius: p.radius, width: p.riverWidth })
         : undefined;
     const settlement = generateLayout(rng.stream("layout"), {
         boundary,
         radius: p.radius,
         profile: p.settlementProfile,
+        terrainProfile: terrain.profile,
     });
 
     const internalRoads = generateRoads(rng.stream("roads"), {
@@ -94,7 +99,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         roads,
         river,
         radius: p.radius,
-        kind: p.standingWaterKind,
+        kind: p.standingWaterKind === "auto" ? terrainStandingWater(terrain.profile) : p.standingWaterKind,
     });
     const water = river ? [river, standingWater] : [standingWater];
 
@@ -122,6 +127,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         params: p,
         bounds,
         mapBounds,
+        terrain,
         boundary,
         settlement,
         civicSpaces: settlement.civicSpaces,
@@ -130,4 +136,17 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         parcels,
         buildings,
     };
+}
+
+function terrainRiverProbability(profile: MapModel["terrain"]["profile"], configured: number): number {
+    if (configured === 0 || configured === 1) return configured;
+    if (profile === "river-valley") return Math.max(configured, 0.9);
+    if (profile === "ridge" || profile === "hillside" || profile === "island") return Math.min(configured, 0.15);
+    return configured;
+}
+
+function terrainStandingWater(profile: MapModel["terrain"]["profile"]): VillageParams["standingWaterKind"] {
+    if (profile === "lakeshore") return "lake";
+    if (profile === "coast" || profile === "cove" || profile === "peninsula" || profile === "island") return "coast";
+    return "auto";
 }

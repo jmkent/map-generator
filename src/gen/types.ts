@@ -36,6 +36,27 @@ export function boundsRadius(b: Bounds): number {
 /** A closed polygon, given as an ordered ring of vertices (CCW by convention). */
 export type Polygon = Vec2[];
 
+/** Broad landform selected before water, settlement, or roads are generated. */
+export type TerrainProfile = "auto" | "plain" | "river-valley" | "lakeshore" | "coast" | "cove" | "peninsula" | "ridge" | "hillside" | "island";
+export type ResolvedTerrainProfile = Exclude<TerrainProfile, "auto">;
+
+/** A regular terrain sample, shared by the renderer and downstream suitability rules. */
+export interface TerrainSample {
+    height: number;
+    slope: number;
+    land: boolean;
+    buildable: boolean;
+}
+
+/** Deterministic local landscape surrounding a settlement. Samples are row-major. */
+export interface TerrainModel {
+    profile: ResolvedTerrainProfile;
+    bounds: Bounds;
+    resolution: number;
+    seaLevel: number;
+    samples: TerrainSample[];
+}
+
 /** Historical-inspired preset used to choose a settlement layout. */
 export type SettlementProfile = "auto" | "estate" | "weiler" | "haufendorf" | "reihendorf" | "tenement" | "angerdorf" | "rundling";
 export type ResolvedSettlementProfile = Exclude<SettlementProfile, "auto">;
@@ -67,6 +88,8 @@ export interface VillageParams {
     boundaryPoints: number;
     /** Radial variation of the boundary, 0 (circle) .. ~0.5 (very lumpy). */
     boundaryIrregularity: number;
+    /** Terrain landform, or a deterministic seeded selection. */
+    terrainProfile: TerrainProfile;
     /** Historical-inspired settlement preset, or `auto` for a seed-selected profile. */
     settlementProfile: SettlementProfile;
     /** Countryside border around the village boundary, as a fraction of radius. */
@@ -217,6 +240,7 @@ export interface MapModel {
     bounds: Bounds;
     /** Village bounds expanded with countryside and off-map entrances. */
     mapBounds: Bounds;
+    terrain: TerrainModel;
     boundary: Polygon;
     settlement: SettlementLayout;
     civicSpaces: CivicSpace[];
