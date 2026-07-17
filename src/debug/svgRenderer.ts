@@ -41,10 +41,10 @@ export function renderModelSvg(model: MapModel, opts: SvgOptions = {}): string {
         (space) => `  <polygon points="${ring(space.polygon)}" fill="#5f9f61" stroke="#dce9b0" stroke-width="0.5"/>`,
     );
     const waterLines = model.water.flatMap((body) => body.kind === "river"
-        ? [`  <polygon points="${ring([...body.leftBank, ...[...body.rightBank].reverse()])}" fill="#3277ad" stroke="#8ac4e6" stroke-width="0.5"/>`]
+        ? [`  <polygon points="${ring([...body.leftBank, ...[...body.rightBank].reverse()])}" fill="#5fa8d3" stroke="#bfe0f2" stroke-width="0.5"/>`]
         : []);
     const waterPolys = model.water.filter((body) => body.kind !== "river").map(
-        (body) => `  <polygon points="${ring(body.polygon)}" fill="#3277ad" stroke="#8ac4e6" stroke-width="0.5"/>`,
+        (body) => `  <polygon points="${ring(body.polygon)}" fill="#5fa8d3" stroke="#bfe0f2" stroke-width="0.5"/>`,
     );
     const parcelPolys = model.parcels.map(
         (p) => `  <polygon points="${ring(p.polygon)}" fill="none" stroke="#4a5568" stroke-width="0.4"/>`,
@@ -55,8 +55,10 @@ export function renderModelSvg(model: MapModel, opts: SvgOptions = {}): string {
 
     return [
         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`,
-        `  <rect width="${w}" height="${h}" fill="#0c1016"/>`,
-        `  <polygon points="${points}" fill="#276f2b" stroke="#e8ecf1" stroke-width="1" stroke-linejoin="round"/>`,
+        // Fill the whole scene with grass; the village extent is a dashed outline
+        // over it rather than a distinct green patch, so the map reads at a glance.
+        `  <rect width="${w}" height="${h}" fill="#276f2b"/>`,
+        `  <polygon points="${points}" fill="none" stroke="#e8ecf1" stroke-width="1" stroke-dasharray="5 4" stroke-linejoin="round"/>`,
         ...civicPolys,
         ...waterLines,
         ...waterPolys,

@@ -22,6 +22,7 @@ import {
 import type { MapModel } from "../gen/types";
 import { createStageCamera, applyStageFraming } from "./camera";
 import { boundaryGeometry } from "./meshers/boundaryMesher";
+import { boundaryOutlineGeometry } from "./meshers/boundaryOutlineMesher";
 import { roadGeometry } from "./meshers/roadMesher";
 import { buildingInstances } from "./meshers/buildingMesher";
 import { waterGeometry } from "./meshers/waterMesher";
@@ -44,29 +45,35 @@ function canvasAspect(canvas: HTMLCanvasElement): number {
 export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel): Promise<Renderer> {
     const engine = await createEngine(canvas);
     const scene = createSceneContext(engine);
-    scene.clearColor = { r: 0.05, g: 0.06, b: 0.08, a: 1.0 };
+    // Grass fills the scene, so any sliver beyond the terrain reads as field too.
+    scene.clearColor = { r: 0.153, g: 0.435, b: 0.169, a: 1.0 };
 
     const bounds = model.mapBounds;
 
+    // Terrain is the grass surface: one continuous green across the whole extent,
+    // matching the SVG renderer. Relief comes from the raised mesh, not the color.
     const terrainGeo = terrainGeometry(model.terrain);
     const terrainMesh = createMeshFromData(engine, "terrain", terrainGeo.positions, terrainGeo.normals, terrainGeo.indices);
     const terrainMat = createStandardMaterial();
-    terrainMat.diffuseColor = model.terrain.profile === "coast" || model.terrain.profile === "cove" || model.terrain.profile === "peninsula" || model.terrain.profile === "island"
-        ? [0.18, 0.38, 0.2]
-        : [0.22, 0.46, 0.24];
+    terrainMat.diffuseColor = [0.153, 0.435, 0.169];
     terrainMat.specularColor = [0.02, 0.02, 0.02];
     terrainMesh.material = terrainMat;
     terrainMesh.pickable = false;
     addToScene(scene, terrainMesh);
 
-    // Boundary polygon as a flat green patch, just above the grid.
-    const geo = boundaryGeometry(model.boundary, 0.09);
-    const boundaryMesh = createMeshFromData(engine, "boundary", geo.positions, geo.normals, geo.indices);
-    const boundaryMat = createStandardMaterial();
-    boundaryMat.diffuseColor = [0.15, 0.45, 0.2];
-    boundaryMat.specularColor = [0.03, 0.03, 0.03];
-    boundaryMesh.material = boundaryMat;
-    addToScene(scene, boundaryMesh);
+    // Village extent as a dashed outline over the grass, not a filled patch, so
+    // the boundary reads without hiding what sits inside it.
+    const outlineGeo = boundaryOutlineGeometry(model.boundary, 0.1);
+    if (outlineGeo.indices.length > 0) {
+        const outlineMesh = createMeshFromData(engine, "boundary-outline", outlineGeo.positions, outlineGeo.normals, outlineGeo.indices);
+        const outlineMat = createStandardMaterial();
+        outlineMat.diffuseColor = [0.91, 0.925, 0.945];
+        outlineMat.emissiveColor = [0.55, 0.58, 0.62];
+        outlineMat.specularColor = [0.02, 0.02, 0.02];
+        outlineMesh.material = outlineMat;
+        outlineMesh.pickable = false;
+        addToScene(scene, outlineMesh);
+    }
 
     // Civic greens are reserved land: render them above the general ground and
     // below roads so their placement is legible in the interactive view.
@@ -87,8 +94,10 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
     if (waterGeo.indices.length > 0) {
         const waterMesh = createMeshFromData(engine, "water", waterGeo.positions, waterGeo.normals, waterGeo.indices);
         const waterMat = createStandardMaterial();
-        waterMat.diffuseColor = [0.04, 0.3, 0.78];
-        waterMat.emissiveColor = [0.02, 0.12, 0.34];
+        // Pale blue reads with high contrast against the grass. Water is drawn
+        // unlit, so its visible color is the emissive.
+        waterMat.diffuseColor = [0.373, 0.659, 0.827];
+        waterMat.emissiveColor = [0.373, 0.659, 0.827];
         waterMat.specularColor = [0.25, 0.5, 0.8];
         waterMat.backFaceCulling = false;
         waterMat.disableLighting = true;

@@ -35,7 +35,7 @@ This boundary is what makes "refine from there" cheap instead of a rewrite.
 ## 2. Confirmed decisions
 
 - **Geometry libs:** `d3-delaunay` approved for Voronoi/relaxation (fields, lot
-  subdivision). Wired in at **M9** (decorative terrain), not before. `polygon-clipping`
+  subdivision). Wired in at **M14** (decorative land cover), not before. `polygon-clipping`
   deferred until a stage actually needs boolean ops. Everything through M8 (road-graph
   planarization and water) uses hand-rolled primitives (bbox, inset, SAT, segment/spline
   intersection).
@@ -43,7 +43,7 @@ This boundary is what makes "refine from there" cheap instead of a rewrite.
   projection, so a narrow FOV (~8°) viewed from a correspondingly large radius makes
   perspective divergence negligible, giving the flat, map-like watabou feel. Fixed tilt,
   controls locked, auto-framed to bounds. Widening the FOV yields a perspective "diorama"
-  toggle, deferred to **M10**.
+  toggle, deferred to **M15**.
 - **RNG:** seedable 32-bit PRNG (mulberry32/sfc32) with **named streams** — each stage's
   generator derived from `hash(masterSeed, streamName)` so adding/reordering a stage does
   not shift earlier stages' random sequences. Regressions stay local; untouched stages'
@@ -67,14 +67,18 @@ src/
       catmullRom.ts        # centripetal spline through control points
       graph.ts             # road-graph planarization: edge intersection + splitting
       sampling.ts          # weighted pick, poisson-disk, jitter
-      voronoi.ts           # d3-delaunay wrapper + Lloyd relaxation (M9)
+      voronoi.ts           # d3-delaunay wrapper + Lloyd relaxation (M14, land cover)
     stages/
-      boundary.ts          # village extent polygon
-      water.ts             # STRUCTURAL: rivers, ponds, lakes, coast (runs early, M7–M8)
+      terrain.ts           # SUBSTRATE: height field, slope, buildability (runs first, M9)
+      site.ts              # settlement siting on connected buildable land (M11)
+      boundary.ts          # village extent polygon (anchored to the site)
+      water.ts             # STRUCTURAL: rivers, ponds, lakes, coast — terrain-driven (M7–M8, M10)
+      layout.ts            # settlement morphology + civic space (M5)
       roads.ts             # road graph: primaries + secondaries/spokes + approaches
+      approaches.ts        # extend primaries to the map edge as entrances (M6)
       parcels.ts           # subdivide buildable band into lots (water-aware)
       buildings.ts         # place clustered house footprints (water-aware)
-      terrain.ts           # DECORATIVE: fields, woodlands, grass (M9)
+      landCover.ts         # DECORATIVE: fields, woodlands, grass (M14)
   render/                  # ── Babylon. Consumes MapModel. ──
     Renderer.ts            # engine/scene lifecycle
     framing.ts             # pure near-orthographic framing math (tested)
@@ -82,7 +86,8 @@ src/
     palette.ts             # materials/colors
     geometryData.ts        # plain GeometryData type + Babylon upload adapter
     meshers/
-      groundMesher.ts      # terrain cells → zoned ground
+      terrainMesher.ts     # terrain samples → raised relief grid (M9)
+      groundMesher.ts      # land-cover cells → zoned ground (M14)
       roadMesher.ts        # road polylines → ribbons
       waterMesher.ts       # water bodies/river channel → flat water surface
       buildingMesher.ts    # footprints → extruded, thin-instanced
@@ -120,9 +125,9 @@ Babylon into the module graph.
   bridges/fords, banked buildings); **ponds/lakes** are closed bodies to avoid and cluster
   near; a large **lake/ocean** becomes a **border** that replaces part of the boundary and
   makes a waterfront town. All feed the density falloff so the village hugs the water.
-- **Decorative terrain:** material-zoned ground filling what's left after water + settlement;
-  farmland fields as **Voronoi + Lloyd relaxation** patches (M9); woodlands as thin-instanced
-  trees seeded by the Poisson sampler under a density mask. No constraint on layout.
+- **Decorative land cover:** material-zoned ground filling what's left after terrain + water +
+  settlement; farmland fields as **Voronoi + Lloyd relaxation** patches (M14); woodlands as
+  thin-instanced trees seeded by the Poisson sampler under a density mask. No constraint on layout.
 - **Houses:** footprint polygon (rect with occasional L/T variation) → `inset` for wall
   thickness → extrude to a seeded height → optional roof prism. Thin-instanced via
   `addThinInstance`.
@@ -142,12 +147,15 @@ Babylon into the module graph.
 
 Each milestone is a shippable vertical slice. The village "clicks" visually at **M3**.
 
-> **Status:** Milestones marked `[x]` are shipped. The remaining work starts with **M9**,
-> which adds decorative terrain;
-> **M7–M8** add *structural water* (rivers, then ponds/lakes/coast) which constrains the
-> layout; **M9** paints *decorative terrain* (fields/woodlands) on what is left; **M10** is
-> interactivity and polish. Structural layout and water precede decorative terrain
-> deliberately: they shape where the town can go, while woodlands fill the gaps.
+> **Status:** Milestones marked `[x]` are shipped (**M0–M11**). **M0–M8** built the settlement
+> bottom-up — boundary, roads, morphology, approaches, then *structural water* (rivers, ponds,
+> lakes, coast) as the earliest layout constraint. **M9** then inverted the pipeline to be
+> *terrain-first*: a `TerrainModel` is generated before anything else, and M9–M11 established the
+> relief substrate, terrain-driven hydrology selection, and settlement siting. The remaining work
+> (**M12–M15**) hands road, parcel, and building geometry over to the terrain, then paints
+> *decorative land cover* (fields/woodlands) on what is left, and finally adds interactivity and
+> inspection. Constraints still land at the earliest phase that can enforce them; decoration stays
+> last.
 
 ### [x] M0 — Scaffold & fixed-angle stage
 Strip the sandbox demo from `src/main.ts`. Stand up `Renderer` + a near-orthographic camera
@@ -475,36 +483,211 @@ hugging the shore; ponds dotting the interior.
   dock road terminates at the shore.
 - **Determinism + golden + mesher.**
 
-### [ ] M9 — Terrain substrate & visible relief
-Generate terrain before settlement. A seed selects an inland plain, river valley, lakeshore,
-open coast, cove, peninsula, ridge, hillside, or island. A local landscape roughly three
-settlement diameters wide supplies a height field, land mask, slope, buildability classification,
-and raised terrain mesh. The initial analytical model and renderer are in place; the remaining
-milestones replace legacy boundary and water ownership.
+> **Terrain-first re-architecture (M9–M15).** Through M8, water was the earliest
+> structural constraint and the boundary was an unanchored organic outline. M9 inverts this:
+> a `TerrainModel` is generated *first* and everything else is progressively handed over to
+> it. M9–M11 are shipped and establish the substrate (relief, hydrology selection, siting);
+> M12–M15 finish the handover (roads, parcels, land cover, interactivity). Where a shipped
+> milestone realized only part of its title, the outstanding half is named explicitly and
+> scheduled into a later milestone rather than silently claimed.
 
-### [ ] M10 — Terrain-owned hydrology
-Derive coasts, coves, peninsulas, lakes, drainage, floodplains, and rivers from terrain. Rivers
-descend to a lake or coast; shoreline and bank geometry replace arbitrary water placement.
+### [x] M9 — Terrain substrate & visible relief
+Generation now begins with terrain. `stages/terrain.ts` runs first in the pipeline — before the
+boundary — drawing from a dedicated `terrain` stream, and produces a `TerrainModel`: a
+deterministic analytical landscape roughly three settlement diameters wide that every later
+stage can consult.
 
-### [ ] M11 — Settlement siting & envelope
-Select connected, stable buildable land and derive the settlement envelope from it. Terrain
-compatibility resolves morphology preferences and diagnostics report the resulting site choice.
+**Shipped:**
+- **Profiles:** nine resolved landforms — `plain`, `river-valley`, `lakeshore`, `coast`, `cove`,
+  `peninsula`, `ridge`, `hillside`, `island`. `terrainProfile: "auto"` resolves one from the
+  seed; an explicit profile is honored. `VillageParams.terrainProfile` carries the choice.
+- **Height field:** a 65×65 regular grid over square `bounds = radius*3`, row-major
+  `TerrainSample[]`. Each profile is a closed-form height function (profile relief + two-phase
+  sinusoidal noise) over sea level 0; per-sample `slope` is a central-difference gradient
+  magnitude.
+- **Buildability classification:** `land = height > seaLevel`;
+  `buildable = land && slope < 0.22 && height > 1.5`. `terrainSampleAt(point)` reads the nearest
+  sample with clamped grid coordinates.
+- **mapBounds becomes terrain-owned:** the pipeline sets `mapBounds = terrain.bounds`, replacing
+  the M6 countryside-margin rectangle. The camera frames the terrain extent and approaches run to
+  the terrain edge. (The `countrysideMargin` param is now vestigial.)
+- **Terrain-oriented settlement:** `layout.ts` seeds the settlement axis from the profile
+  (valley/ridge across-slope, coast family along-shore, hillside diagonal) before falling back to
+  a random axis.
+- **Rendering:** `render/meshers/terrainMesher.ts` emits a raised regular-grid `GeometryData`
+  (per-sample height × vertical scale); the Renderer tints water-fronting profiles differently and
+  frames `mapBounds`.
+
+**Deliverable:** every seed sits on a visible, deterministic local landscape with a classified
+buildable surface; the profile visibly shapes relief and settlement orientation.
+
+**Test plan (shipped):**
+- **Determinism:** each profile regenerates byte-identical terrain; `mapBounds === terrain.bounds`;
+  `resolution²` samples; all heights/slopes finite; at least one buildable sample.
+- **Mesher:** raised field emits `resolution²` vertices and `(resolution-1)²·6` indices, all finite.
+- **Orientation:** valley/coast axes align with the profile's preferred direction.
+
+**Deferred:** the substrate is analytical and the legacy boundary/water/road stages still own
+their own geometry. M10–M13 progressively hand that ownership to the terrain.
+
+### [x] M10 — Terrain-owned hydrology
+`stages/water.ts` gains `generateHydrology`, which resolves all water from the selected terrain
+profile instead of from standalone water parameters, and the result is propagated back onto the
+terrain samples.
+
+**Shipped:**
+- **Profile-driven selection:** `terrainRiverChance` biases river presence by profile
+  (river-valley → ≥0.9; ridge/hillside/island → ≤0.15; explicit 0/1 respected). `terrainWaterKind`
+  picks the standing-water kind (lakeshore → lake; coast/cove/peninsula/island → coast; else pond)
+  unless `standingWaterKind` overrides it.
+- **Single hydrology stream:** river + standing water are produced together over `terrain.bounds`
+  from one `hydrology` stream; river banks and coast reserves clamp to the terrain extent.
+- **Exclusion propagation:** `applyHydrology` marks every terrain sample under a river channel or
+  closed body as `land = false, buildable = false`, and stores the resolved bodies on
+  `terrain.hydrology` (kept equal to `MapModel.water`).
+
+**Deliverable:** water type and presence follow the landform, and the buildable surface reflects
+the water actually placed.
+
+**Test plan (shipped):**
+- river-valley yields a river; cove yields coast; lakeshore yields a lake;
+  `terrain.hydrology === water`; submerged samples become non-land / non-buildable.
+
+**Deferred (true height-field-derived hydrology):** rivers still meander map-edge-to-edge rather
+than descending the gradient to a low point; standing water and coast are still placed by profile
+heuristic rather than traced from the sub-sea-level contour; drainage networks and floodplains are
+not yet derived. Tracing shoreline and channel geometry from the height field is folded into M12's
+crossing work and remains the outstanding half of "terrain-owned" water.
+
+### [x] M11 — Settlement siting & envelope
+`stages/site.ts` chooses where the settlement sits on the classified terrain before its outline is
+drawn.
+
+**Shipped:**
+- **Connected buildable component:** a 4-neighbour flood fill over `buildable` samples finds
+  connected components; the largest is the candidate build area.
+- **Scored anchor:** each candidate cell scores on centrality (distance to terrain center) and
+  flatness (slope) with a small seeded jitter, from the `site` stream. The best cell is
+  `SettlementSite.anchor`; the model records `componentSize`, `suitability`, and a human
+  `rationale`.
+- **Anchored envelope:** the organic boundary is generated at the origin then translated to the
+  site anchor, so the settlement, roads, parcels, and buildings all sit on the chosen buildable
+  land. Diagnostics surface the site rationale and buildable percentage in the HUD.
+
+**Deliverable:** settlements land on stable, connected, buildable terrain rather than the terrain
+center by default, and the choice is inspectable.
+
+**Test plan (shipped):**
+- `site.componentSize > 0`; boundary vertices sit within the expected radius of the anchor;
+  diagnostics report terrain, site, and buildable percent.
+
+**Deferred:** the envelope is still the seeded organic outline translated to the anchor, not a
+shape derived from the buildable component's extent; terrain–morphology compatibility (rejecting a
+profile a site cannot support, biasing profile selection by available land) is not yet resolved.
+Both are picked up as siting/morphology refinements in M13.
 
 ### [ ] M12 — Terrain-constrained roads & crossings
-Build circulation around traversable slopes, valleys, shore corridors, ridges, and passes.
-Choose bridges at useful, stable river crossings before planarizing the road graph.
+Roads currently ignore relief. This milestone makes circulation follow the terrain: routes prefer
+traversable slope and natural corridors, and river crossings are chosen at good, stable points
+before planarization. It also lands the deferred half of M10 — deriving channel/shoreline geometry
+from the height field.
 
-### [ ] M13 — Terrain-constrained parcels & buildings
-Exclude water, floodplain, steep land, and inaccessible remnants. Density and civic space follow
-terrain-supported frontage, water access, and viable land.
+**Scope:**
+- **Slope-aware routing:** road candidates sample terrain slope along their length (via
+  `terrainSampleAt`) and are penalized or rejected where they climb steeper than a traversable
+  threshold; trunk/cross-street placement biases toward valleys, shore corridors, ridgelines, and
+  passes rather than cutting across steep faces.
+- **Height-field hydrology (M10 carryover):** trace river channels down the gradient to a lake or
+  coast and shorelines along the sub-sea-level contour, replacing the profile-heuristic placement,
+  so crossings sit on real banks.
+- **Crossing selection before planarization:** where a route must cross a river, choose the
+  crossing at a narrow, low-slope, stable bank point (a ford/bridge site derived from the channel +
+  banks) instead of accepting whatever intersection planarization happens to produce; flag it
+  `crossing: "bridge"` as today.
+- **Corridor continuity:** approaches and primaries prefer to enter the site through terrain gaps
+  (valley mouths, shore edges) so entrances read as the ways one would actually arrive.
+- **Model:** road generation consumes `TerrainModel` and the resolved hydrology; crossing nodes
+  carry the chosen-site rationale.
+
+**Deliverable:** road networks that avoid unbuildable steep ground, run with the grain of the land,
+and cross water at deliberate points.
+
+**Test plan:**
+- **Invariants:** no accepted road segment exceeds the traversable-slope threshold beyond
+  tolerance; every river crossing is a flagged bridge node at a low-slope bank; graph stays
+  connected and planar; approaches still reach the terrain edge.
+- **Determinism + stream isolation; golden SVG; mesher.**
+
+### [ ] M13 — Terrain-constrained parcels, buildings & siting refinement
+Parcels and buildings must respect the same terrain the roads now follow, and settlement
+siting/morphology finishes its handover to the terrain (the deferred half of M11).
+
+**Scope:**
+- **Terrain exclusions:** parcels and buildings reject water, floodplain, steep, and non-`buildable`
+  cells and inaccessible remnants cut off from the road graph, on top of the existing
+  corridor/overlap/civic checks.
+- **Terrain-weighted density:** the density falloff gains terrain terms — flatter, better-connected,
+  water-adjacent buildable land is preferred; civic space is reserved on genuinely usable ground.
+- **Envelope & morphology from terrain (finishes M11):** derive the settlement envelope from the
+  connected buildable component's extent rather than translating a fixed organic outline; let
+  available land and profile resolve/bias the morphology preference and reject infeasible profiles.
+- **Model:** parcels/buildings consume `TerrainModel`; the envelope becomes terrain-derived.
+
+**Deliverable:** houses and lots only where the land supports them, density that reads the terrain,
+and a settlement shape that fits its site.
+
+**Test plan:**
+- **Invariants:** no parcel/building on non-buildable, submerged, floodplain, or steep cells; every
+  building reachable from the road graph; envelope contained in the buildable component; density
+  correlates with buildability.
+- **Determinism + golden + mesher.**
 
 ### [ ] M14 — Land cover & countryside structure
-Add fields, woodland, grassland, and exposed terrain after settlement placement. Fields occupy
-workable connected land; woods favor steep, remote, or unsuitable land.
+With settlement fixed, fill the remaining terrain with decorative land cover — the first stage that
+is purely additive and never constrains layout.
+
+**Scope:**
+- **Fields:** farmland patches on workable, connected, gently-sloped buildable land left outside the
+  settlement, as **Voronoi + Lloyd-relaxation** cells (the first use of `d3-delaunay` — see §2).
+  Fields follow their cell boundaries and avoid water/steep ground.
+- **Woodland:** thin-instanced trees seeded by a Poisson sampler under a density mask that favors
+  steep, remote, high, or otherwise unsuitable-for-building terrain.
+- **Grassland / exposed terrain:** material-zoned ground fills what neither settlement, fields, nor
+  woods claim; very steep or high cells read as bare/exposed rock.
+- **Model:** a decorative `landCover` layer on `MapModel`; renderers add field, tree, and
+  ground-zone meshes. No feedback into roads/parcels.
+
+**Deliverable:** a populated countryside — fields near the settlement, woods on the rough margins —
+around the village.
+
+**Test plan:**
+- **Invariants:** land cover never overlaps settlement footprints, water, or roads; fields occupy
+  buildable/workable cells while woods favor steep/remote cells; coverage partitions the remaining
+  land without gaps or overlaps.
+- **Determinism + golden; mesher (field/tree/ground counts, no NaNs).**
 
 ### [ ] M15 — Interactivity & terrain diagnostics
-Expose terrain profile, hydrology, buildability, exclusions, siting, and bridges through controls,
-URL state, and inspection overlays. Screenshot export, picking, and perspective polish follow.
+Expose the now terrain-driven model through controls and inspection, and finish presentation polish.
+
+**Scope:**
+- **Controls & URL state:** terrain profile, river chance/width, standing-water kind, settlement
+  profile, and key density params become UI controls that round-trip through the URL (extending
+  `urlState`), with a regenerate/screenshot flow.
+- **Inspection overlays:** toggleable overlays for terrain profile/relief, slope/buildability,
+  hydrology, exclusions, the chosen site + component, and bridge crossings — driven by the same
+  `MapModel`/SVG data used in tests.
+- **Diagnostics surface:** promote `geometryDiagnostics` into a visible panel (terrain, site
+  rationale, buildable %, road/water/bridge counts).
+- **Presentation:** picking, screenshot export, and the deferred near-ortho ↔ perspective "diorama"
+  toggle (see §2).
+
+**Deliverable:** a seed's terrain, hydrology, buildability, siting, and circulation are all
+inspectable and adjustable from the browser, with shareable URLs and screenshot export.
+
+**Test plan:**
+- **URL round-trip** for every exposed param (incl. malformed → default); **overlay data**
+  assertions against the model (headless); determinism of diagnostics text; pixel/screenshot checks
+  optional under a browser runner.
 
 ---
 

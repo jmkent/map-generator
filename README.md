@@ -36,17 +36,27 @@ seed + params ─▶ gen/ (pure) ─▶ MapModel ─┬─▶ render/ (Babylon) 
 
 ## Status
 
-Implemented through **M4**: deterministic core (seeded RNG with named streams,
-geometry toolkit incl. Catmull–Rom splines and SAT overlap tests), an organic
-village **boundary**, a **road network** (a planar loose grid of primary streets,
-secondary block connectors, and lanes), and
-**parcels + houses** — burgage lots lining the streets, each holding a
-road-oriented house clustered toward a denser core. Roads and boundary render as
-flat meshes; houses as thin-instanced boxes; everything also renders to SVG for
-tests. Next up (see [PLAN.md](./PLAN.md)): village-layout strategies and civic space (M5),
-then off-map road entrances (M6), *structural water* — rivers, ponds, lakes, and coastlines
-that constrain the layout (M7–M8) — and finally *decorative terrain* like fields and
-woodlands (M9).
+Implemented through **M11**. The generator is now **terrain-first**: it builds a
+local landscape, then settles a village onto it.
+
+- **Deterministic core (M0–M1):** seeded RNG with named streams, a geometry
+  toolkit (Catmull–Rom splines, SAT overlap tests), and an organic village
+  **boundary**.
+- **Settlement (M2–M6):** a planar **road network** (loose grid of primary
+  streets, secondary connectors, and lanes) with **parcels + houses** lining the
+  streets; seven **settlement morphologies** with civic space (M5); and off-map
+  **approach roads** as village entrances (M6).
+- **Structural water (M7–M8):** rivers with bridge crossings, plus ponds, lakes,
+  and coastlines that constrain the layout.
+- **Terrain-first substrate (M9–M11):** a nine-profile **terrain** height field
+  with slope and buildability classification (M9), **hydrology** selected from the
+  landform and excluded from the buildable surface (M10), and settlement **siting**
+  on the largest connected buildable component (M11). Terrain renders as a raised
+  relief mesh; everything also renders to SVG for tests.
+
+Next up (see [PLAN.md](./PLAN.md)): handing road, parcel, and building geometry
+over to the terrain (M12–M13), then *decorative land cover* — fields and woodlands
+(M14) — and interactivity and inspection overlays (M15).
 
 ## Running
 
@@ -97,7 +107,7 @@ Techniques used or planned (see PLAN.md for where each lands):
   https://www.redblobgames.com/ (esp. [polygonal map generation](https://www.redblobgames.com/maps/mapgen4/) and [making maps with noise](https://www.redblobgames.com/maps/terrain-from-noise/))
 - Poisson-disk sampling (for clustered house/tree placement) —
   https://www.jasondavies.com/poisson-disc/ and Bridson's algorithm
-- Voronoi diagrams + Lloyd's relaxation (for fields/parcels, M9) —
+- Voronoi diagrams + Lloyd's relaxation (for decorative land-cover fields, M14) —
   [`d3-delaunay`](https://github.com/d3/d3-delaunay)
 - Catmull–Rom splines (for organic road curves, M2) —
   https://en.wikipedia.org/wiki/Centripetal_Catmull%E2%80%93Rom_spline

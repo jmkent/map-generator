@@ -1,9 +1,16 @@
 # Architecture
 
-This document explains how the village generator currently works through M8.
+This document explains how the village generator currently works through M11.
 It starts with the problem each phase solves, then names the techniques used in
 the code. Read `PLAN.md` for the roadmap; use this document to understand the
 implemented system and the rules that shape its output.
+
+As of M9 the pipeline is **terrain-first**: a local landscape is generated before
+anything else, the settlement is sited on connected buildable land, and water is
+selected from the landform. Earlier milestones (M0–M8) built the settlement
+bottom-up; M9–M11 put a terrain substrate underneath it. Where the terrain does
+not yet fully own a piece of geometry, this document says so and points to the
+milestone that finishes the handover.
 
 ## The overall idea
 
@@ -17,11 +24,21 @@ feel inhabited.
 seed + parameters
         |
         v
-named RNG streams -> boundary -> river -> settlement layout -> village roads -> approaches -> parcels -> buildings -> MapModel
-                                                               |         |
-                                                               v         v
-                                                     Babylon renderer   SVG debug/goldens
+named RNG streams -> terrain -> boundary -> site -> settlement layout -> roads -> approaches
+                                                                                     |
+                                        buildings <- parcels <- hydrology (+ river crossings) <-
+                                            |
+                                            v
+                                        MapModel -> Babylon renderer / SVG debug + goldens
 ```
+
+Two ordering details are worth noting. The **boundary is generated at the origin,
+then translated onto the chosen site**, so siting happens between the raw outline
+and everything that depends on its final position. And **hydrology now runs after
+roads**: the landform decides *whether* there is a river and *what kind* of
+standing water exists up front, but the closed bodies are placed so they avoid the
+road graph, and river/road crossings are stitched in immediately afterwards.
+Parcels and buildings still see water as a hard constraint.
 
 `MapModel` is the shared description of the village. It contains data only;
 rendering does not make layout choices. That separation means a visual problem
@@ -43,12 +60,14 @@ Procedural generation is only useful when a reported seed can be reproduced.
 All variation therefore comes from a seeded pseudo-random number generator
 (PRNG), rather than `Math.random` or the current time. The project uses
 [named random streams](https://github.com/bryc/code/blob/master/jshash/PRNGs.md):
-boundary, water, layout, roads, approaches, parcels, and buildings each receive their own stream derived
-from the main seed.
+terrain, boundary, site, layout, roads, approaches, hydrology, parcels, and
+buildings each receive their own stream derived from the main seed.
 
 In practical terms, changing how many random choices road generation makes must
-not silently change the boundary or houses for that seed. This is why stream
-ownership lives in `src/gen/pipeline.ts`.
+not silently change the terrain, boundary, or houses for that seed. This is why
+stream ownership lives in `src/gen/pipeline.ts`. New stages are added with their
+own named stream rather than by drawing from an existing one, so inserting terrain
+and siting ahead of the older stages left their sequences untouched.
 
 ### Shape before rendering
 
@@ -74,25 +93,71 @@ The pipeline needs a common scale before it can judge whether a road is too
 short for houses or whether a connection is too close to an existing junction.
 `src/gen/pipeline.ts` owns the defaults and runs the stages in order:
 
-1. Make the settlement outline.
-2. Generate structural water across the map extent.
+1. Generate the terrain: a local height field with slope and buildability.
+2. Make the settlement outline, then site it on connected buildable land.
 3. Resolve the settlement form and reserve civic land.
 4. Make roads within that outline and around any reserved land.
 5. Extend selected primary routes into the countryside.
-6. Make roadside lots from the roads.
-7. Put buildings into viable lots.
-8. Derive village and map bounds for framing.
+6. Resolve hydrology from the landform and stitch river crossings into the roads.
+7. Make roadside lots from the roads, clear of water.
+8. Put buildings into viable lots.
+
+Map bounds come straight from the terrain extent, so framing no longer needs a
+separate derivation step. The village bounds are the bounding box of the sited
+boundary.
 
 The normal village radius is 125 units. This is intentionally large enough to
 hold several primary routes and central blocks while leaving enough frontage for
 houses. It avoids forcing every road through a single central crossing simply
 because there is no other viable space.
 
-### 2. Define where the village can exist
+### 2. Generate the terrain the village sits on
+
+Before there is a village there is a place. `src/gen/stages/terrain.ts` uses the
+`terrain` stream to build a `TerrainModel`: a deterministic analytical landscape
+roughly three settlement diameters wide. A seed selects one of nine landforms —
+`plain`, `river-valley`, `lakeshore`, `coast`, `cove`, `peninsula`, `ridge`,
+`hillside`, or `island` — or `auto` resolves one. Each landform is a closed-form
+height function evaluated over a 65×65 regular grid, plus two-phase sinusoidal
+noise so no two seeds share the same relief.
+
+Each grid sample carries a `height`, a `slope` (a central-difference estimate of
+the gradient magnitude), a `land` flag (above sea level), and a `buildable` flag
+(land that is gentle and high enough to build on). This classification is the
+substrate every later constraint reads: siting, water exclusion, and — in later
+milestones — road and parcel placement. The renderer raises the same grid into a
+visible relief mesh, so the terrain a seed reports is the terrain you see.
+
+The terrain's bounding box becomes the map extent (`mapBounds`). The camera frames
+it and approach roads run to its edge, replacing the earlier countryside-margin
+rectangle. The landform also seeds the settlement's preferred axis: a valley or
+ridge runs across-slope, a shoreline runs along the coast, a hillside runs
+diagonally.
+
+### 3. Site the settlement on stable, connected land
+
+A landform is not uniformly buildable, so the settlement must choose where to sit.
+`src/gen/stages/site.ts` uses the `site` stream to pick that spot. It flood-fills
+the `buildable` samples into connected components and keeps the largest one — a
+single contiguous piece of good ground, not scattered specks. Within it, each cell
+is scored for centrality (near the middle of the landscape) and flatness, with a
+small seeded jitter, and the best cell becomes the `SettlementSite.anchor`.
+
+The model records the anchor, the component size, a suitability score, and a
+human-readable rationale, all surfaced in the HUD diagnostics. This is the
+mechanism that puts a coastal village on its shore and a valley village on its
+valley floor rather than defaulting to the center of the map.
+
+The current envelope is still the seeded organic outline translated onto the
+anchor; deriving the outline's *shape* from the buildable component, and letting
+terrain reject an unsuitable morphology, is deferred to M13.
+
+### 4. Define where the village can exist
 
 The boundary gives the settlement a distinct edge rather than treating the map
 as an infinite plane. `src/gen/stages/boundary.ts` makes a seeded, irregular
-outline around the center. The technical representation is a simple,
+outline around the origin, which the pipeline then translates onto the site
+anchor from the previous phase. The technical representation is a simple,
 counter-clockwise [polygon](https://en.wikipedia.org/wiki/Simple_polygon).
 
 The shape is irregular so that the village does not read as a perfect circle,
@@ -106,43 +171,6 @@ Road placement uses a smaller version of the boundary, called an inset safe
 area. This leaves room between the settlement edge and road ribbons, curve
 bends, lots, and buildings. The original boundary remains the final hard limit
 for later stages.
-
-### 3. Generate structural water before placing the settlement
-
-M7 treats the river as a physical constraint instead of a blue mark painted on
-after the village is complete. `src/gen/stages/water.ts` uses the independent
-`water` stream to build a restrained Catmull-Rom channel from one `mapBounds`
-edge to the opposite edge. This makes the river stable when road or building
-parameters change.
-
-The centerline is only the routing reference. The visible channel is represented
-by matching left and right bank samples whose width changes gradually from one
-sample to the next. This avoids ruler-straight water edges while keeping road
-crossing and distance calculations simple. Ponds and lakes use seeded irregular
-outlines, and coast keeps its map-edge boundary while jittering the shoreline
-facing land. The SVG and Babylon water mesh consume these shoreline points
-directly rather than reconstructing a clean uniform ribbon.
-
-After roads are generated, every road-channel intersection is split into a
-shared road node marked `crossing: "bridge"`. The road mesh is drawn above the
-water mesh, making those flagged crossings legible while preserving a single
-planar movement graph. Parcel generation treats each river segment as a hard
-corridor, and a bounded bank-proximity multiplier favors viable lots near,
-rather than in, the water.
-
-### 4. Reserve standing water and coastline
-
-M8 extends `WaterBody` beyond the flowing river with closed `pond`, `lake`, and
-`coast` polygons. `standingWaterKind` can select one explicitly or use a seeded
-choice. Ponds and lakes are organic outlines placed only in open village land:
-they clear the river and existing road corridors before parcel generation sees
-them. Coast is a map-edge reserve on a side without an approach road, leaving
-the village on the land side while keeping an outer shoreline visible.
-
-All closed bodies are hard exclusions for lots and buildings. Their shorelines
-also add a modest density preference, strongest for lakes and coast. The water
-mesher fan-triangulates closed polygons in addition to its river ribbons, so
-the same `MapModel.water` data drives Babylon and SVG rendering.
 
 ### 5. Choose a settlement form before growing roads
 
@@ -292,10 +320,11 @@ while allowing road growth to follow the selected morphology.
 
 ### 7. Continue selected roads into the countryside
 
-The village boundary is not the edge of the world. M6 derives `mapBounds` by
-expanding the tight village bounds with a countryside margin. The renderer and
-camera use that larger rectangle, while the original boundary still defines
-where village parcels and buildings may exist.
+The village boundary is not the edge of the world. Since M9, `mapBounds` is the
+terrain's bounding box: the renderer and camera use that larger rectangle, while
+the original boundary still defines where village parcels and buildings may exist.
+(Before terrain, M6 derived `mapBounds` by expanding the village bounds with a
+countryside margin; that margin parameter is now vestigial.)
 
 `src/gen/stages/approaches.ts` examines degree-one primary endpoints, follows
 each endpoint's outgoing tangent through the village boundary, and continues it
@@ -305,7 +334,45 @@ class: they render at primary width, remain part of the connected planar graph,
 and never create parcel frontage. The existing graph plus selected approaches is
 planarized again so this remains a single routing model.
 
-### 8. Turn useful street frontage into parcels
+### 8. Resolve hydrology from the landform
+
+Water is still structural — it constrains where houses go — but it is now chosen
+*by the terrain* rather than by standalone water parameters. `generateHydrology`
+in `src/gen/stages/water.ts` uses the `hydrology` stream and the terrain profile
+to decide two things: whether there is a river (a river-valley almost always has
+one; a ridge, hillside, or island rarely does) and what kind of standing water the
+landform implies (a lakeshore gets a lake; coast, cove, peninsula, and island get
+a coastline; otherwise a pond). An explicit `riverChance` or `standingWaterKind`
+still overrides the terrain's choice.
+
+The river itself is a restrained Catmull-Rom channel spanning the terrain extent
+from one edge to the opposite. Its centerline is only the routing reference; the
+visible channel is matching left and right bank samples whose width changes
+gradually, so the water is not a ruler-straight ribbon. Ponds and lakes are
+seeded organic outlines placed in open village land clear of the river and the
+existing road corridors; coast is a map-edge reserve on a side without an approach
+road, leaving the village on the land side. This is why hydrology runs *after*
+roads: the closed bodies need the road graph to avoid, even though the decision to
+have them was made from the terrain up front.
+
+Two things happen once the water is placed. Each road-channel intersection is
+split into a shared road node marked `crossing: "bridge"`, so a village divided by
+a river stays connected only through legible crossings on a single planar graph.
+And `applyHydrology` marks every terrain sample under a channel or closed body as
+non-land and non-buildable, and records the bodies on `terrain.hydrology` (kept
+equal to `MapModel.water`), so the buildable surface reflects the water actually
+present. All closed bodies are hard exclusions for lots and buildings, and their
+shorelines add a modest density preference — strongest for lakes and coast — via a
+bounded bank-proximity multiplier that favors lots near, not in, the water. The
+water mesher fan-triangulates closed polygons alongside its river ribbons, so one
+`MapModel.water` dataset drives both Babylon and SVG.
+
+At this stage the terrain *selects* and *excludes* water but does not yet *shape*
+it: rivers still span edge-to-edge rather than descending the height gradient, and
+shorelines are heuristic rather than traced from the sub-sea-level contour. Tracing
+channel and shore geometry from the height field is deferred to M12.
+
+### 9. Turn useful street frontage into parcels
 
 Houses need a reason to be where they are. `src/gen/stages/parcels.ts` uses
 continuous road chains as the source of frontage, then attempts lots on both
@@ -330,7 +397,7 @@ Lots carry their road-facing segment, serving road class, and a convex
 lots as well as today’s frontage strips. `track` chains are skipped entirely,
 so service paths cannot accidentally create implausible roadside housing.
 
-### 9. Put buildings in the lots
+### 10. Put buildings in the lots
 
 `src/gen/stages/buildings.ts` makes each house answer to a parcel rather than
 placing buildings independently across the map. It creates a seeded footprint
@@ -342,11 +409,12 @@ This parcel-led approach makes the visible settlement follow its streets: denser
 where useful frontage is available and more open where the road graph leaves
 space alone.
 
-### 10. Draw and inspect the completed model
+### 11. Draw and inspect the completed model
 
-The renderer's job is presentation, not generation. Bounds derived from the
-boundary frame the fixed-angle camera; the Babylon renderer converts model data
-into ground, civic-green, road, and house meshes. Babylon's
+The renderer's job is presentation, not generation. The terrain's bounds frame
+the fixed-angle camera; the Babylon renderer converts model data into a raised
+terrain relief mesh, water surfaces, civic-green, road, and house meshes, tinting
+the terrain differently for water-fronting landforms. Babylon's
 [mesh documentation](https://doc.babylonjs.com/features/featuresDeepDive/mesh/creation/)
 is useful background for that final adapter layer.
 
@@ -358,23 +426,29 @@ a deliberate generation change.
 
 ## Future phase boundaries
 
-The following work is planned but intentionally does not alter the current M4
-rules yet:
+The terrain-first re-architecture is partway done. M9–M11 put the substrate in
+place — relief, terrain-driven hydrology selection, and siting — but the older
+road, parcel, and building stages do not yet read the height field. The remaining
+work hands that ownership over, and only then paints decoration on top:
 
-- **M5 village types and civic space:** select a topology strategy before roads and reserve
-  shared green space where the selected layout needs it.
-- **M6 approaches:** extend selected primary routes to a future countryside map
-  extent with the `approach` road class.
-- **M7-M8 structural water:** make rivers, ponds, lakes, or coast before roads,
-  so water can decide where a settlement may connect and build.
-- **M9 decorative terrain:** add fields and woodland after the settlement is
-  fixed. [Voronoi diagrams](https://www.redblobgames.com/x/2022-voronoi-maps/)
-  are planned for field-like patches, but terrain should fill remaining land,
-  not choose the road graph.
-- **M10 interaction and polish:** expose controls and presentation features
-  without weakening the generation/rendering boundary.
+- **M12 terrain-constrained roads & crossings:** route roads around traversable
+  slope and along natural corridors, and choose river crossings at stable bank
+  points. This also lands the deferred half of hydrology — tracing channel and
+  shore geometry from the height field instead of the current heuristics.
+- **M13 terrain-constrained parcels, buildings & siting refinement:** exclude
+  water, floodplain, steep, and inaccessible land from lots and houses; weight
+  density by buildability; and derive the settlement envelope and morphology from
+  the buildable component rather than translating a fixed outline.
+- **M14 decorative land cover:** add fields, woodland, grassland, and exposed
+  terrain after the settlement is fixed.
+  [Voronoi diagrams](https://www.redblobgames.com/x/2022-voronoi-maps/) supply
+  field-like patches (the first use of `d3-delaunay`), but land cover fills the
+  remaining land — it never chooses the road graph.
+- **M15 interaction and polish:** expose terrain, hydrology, buildability, siting,
+  and bridges through controls, URL state, and inspection overlays, without
+  weakening the generation/rendering boundary.
 
 When a new feature introduces a real layout constraint, it belongs at the
-earliest phase that can enforce it. Water, for example, must constrain road
-candidates before parcels and buildings are derived. A material or lighting
+earliest phase that can enforce it. Terrain, for example, is generated first
+because it constrains siting, water, and eventually roads; a material or lighting
 choice belongs after `MapModel` is already complete.
