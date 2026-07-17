@@ -1,7 +1,9 @@
 // Terrain-first local landscape generation. PURE.
 
-import type { Bounds, ResolvedTerrainProfile, TerrainModel, TerrainProfile, TerrainSample, Vec2 } from "../types";
+import type { Bounds, ResolvedTerrainProfile, TerrainModel, TerrainProfile, TerrainSample, Vec2, WaterBody } from "../types";
 import type { Rng } from "../rng";
+import { contains } from "../geometry/polygon";
+import { distanceToWater } from "./water";
 
 export interface TerrainParams {
     radius: number;
@@ -29,7 +31,7 @@ export function generateTerrain(rng: Rng, params: TerrainParams): TerrainModel {
             samples.push({ height, slope, land, buildable: land && slope < 0.22 && height > 1.5 });
         }
     }
-    return { profile, bounds, resolution: RESOLUTION, seaLevel, samples };
+    return { profile, bounds, resolution: RESOLUTION, seaLevel, samples, hydrology: [] };
 }
 
 /** Read a terrain sample with clamped grid coordinates. */
@@ -37,6 +39,18 @@ export function terrainSampleAt(terrain: TerrainModel, point: Vec2): TerrainSamp
     const tx = clamp(Math.round((point.x - terrain.bounds.minX) / (terrain.bounds.maxX - terrain.bounds.minX) * (terrain.resolution - 1)), 0, terrain.resolution - 1);
     const ty = clamp(Math.round((point.y - terrain.bounds.minY) / (terrain.bounds.maxY - terrain.bounds.minY) * (terrain.resolution - 1)), 0, terrain.resolution - 1);
     return terrain.samples[ty * terrain.resolution + tx];
+}
+
+/** Mark terrain covered by resolved hydrology as non-land and non-buildable. */
+export function applyHydrology(terrain: TerrainModel, hydrology: WaterBody[]): TerrainModel {
+    const samples = terrain.samples.map((sample, index) => {
+        const point = gridPoint(terrain.bounds, terrain.resolution, index % terrain.resolution, Math.floor(index / terrain.resolution));
+        const submerged = hydrology.some((body) => body.kind === "river"
+            ? distanceToWater(point, body) <= 0
+            : contains(body.polygon, point));
+        return submerged ? { ...sample, land: false, buildable: false } : sample;
+    });
+    return { ...terrain, samples, hydrology };
 }
 
 function terrainHeight(profile: ResolvedTerrainProfile, p: Vec2, radius: number, a: number, b: number): number {

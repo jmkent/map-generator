@@ -9,9 +9,9 @@ import { generateParcels } from "./stages/parcels";
 import { generateBuildings } from "./stages/buildings";
 import { generateLayout } from "./stages/layout";
 import { generateApproaches } from "./stages/approaches";
-import { generateRiver, generateStandingWater, integrateRiverCrossings } from "./stages/water";
+import { generateHydrology, integrateRiverCrossings } from "./stages/water";
 import { bounds as polygonBounds } from "./geometry/polygon";
-import { generateTerrain } from "./stages/terrain";
+import { applyHydrology, generateTerrain } from "./stages/terrain";
 
 export const DEFAULT_PARAMS: VillageParams = {
     radius: 125,
@@ -57,11 +57,6 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
 
     const bounds = polygonBounds(boundary);
     const mapBounds = terrain.bounds;
-    const waterRng = rng.stream("water");
-    const riverProbability = terrainRiverProbability(terrain.profile, p.riverChance);
-    const river = waterRng.chance(riverProbability)
-        ? generateRiver(waterRng, { boundary, mapBounds, radius: p.radius, width: p.riverWidth })
-        : undefined;
     const settlement = generateLayout(rng.stream("layout"), {
         boundary,
         radius: p.radius,
@@ -92,17 +87,18 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         maxCount: p.approachRoadMax,
         width: p.primaryRoadWidth,
     });
-    const roads = river ? integrateRiverCrossings(approachedRoads, river) : approachedRoads;
-    const standingWater = generateStandingWater(rng.stream("standing-water"), {
+    const water = generateHydrology(rng.stream("hydrology"), {
+        terrain,
         boundary,
-        mapBounds,
-        roads,
-        river,
         radius: p.radius,
-        kind: p.standingWaterKind === "auto" ? terrainStandingWater(terrain.profile) : p.standingWaterKind,
+        riverChance: p.riverChance,
+        riverWidth: p.riverWidth,
+        standingWaterKind: p.standingWaterKind,
+        roads: approachedRoads,
     });
-    const water = river ? [river, standingWater] : [standingWater];
-
+    const river = water.find((body): body is Extract<typeof body, { kind: "river" }> => body.kind === "river");
+    const terrainWithHydrology = applyHydrology(terrain, water);
+    const roads = river ? integrateRiverCrossings(approachedRoads, river) : approachedRoads;
     const parcels = generateParcels(rng.stream("parcels"), {
         boundary,
         roads,
@@ -127,7 +123,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         params: p,
         bounds,
         mapBounds,
-        terrain,
+        terrain: terrainWithHydrology,
         boundary,
         settlement,
         civicSpaces: settlement.civicSpaces,
@@ -136,17 +132,4 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         parcels,
         buildings,
     };
-}
-
-function terrainRiverProbability(profile: MapModel["terrain"]["profile"], configured: number): number {
-    if (configured === 0 || configured === 1) return configured;
-    if (profile === "river-valley") return Math.max(configured, 0.9);
-    if (profile === "ridge" || profile === "hillside" || profile === "island") return Math.min(configured, 0.15);
-    return configured;
-}
-
-function terrainStandingWater(profile: MapModel["terrain"]["profile"]): VillageParams["standingWaterKind"] {
-    if (profile === "lakeshore") return "lake";
-    if (profile === "coast" || profile === "cove" || profile === "peninsula" || profile === "island") return "coast";
-    return "auto";
 }

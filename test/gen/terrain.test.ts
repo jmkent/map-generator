@@ -37,5 +37,7 @@ describe("terrain-first generation", () => {
         expect(lake.water.some((body) => body.kind === "lake")).toBe(true);
         expect(Math.abs(valley.settlement.axis.y)).toBeGreaterThan(0.99);
         expect(Math.abs(cove.settlement.axis.x)).toBeGreaterThan(0.99);
+        expect(valley.terrain.hydrology).toEqual(valley.water);
+        expect(valley.terrain.samples.some((sample) => !sample.land && !sample.buildable)).toBe(true);
     });
 });

@@ -55,6 +55,8 @@ export interface TerrainModel {
     resolution: number;
     seaLevel: number;
     samples: TerrainSample[];
+    /** Terrain-derived rivers and standing water, populated by the hydrology stage. */
+    hydrology: WaterBody[];
 }
 
 /** Historical-inspired preset used to choose a settlement layout. */

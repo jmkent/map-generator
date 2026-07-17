@@ -1,6 +1,6 @@
 // Structural river generation and road-crossing integration. PURE.
 
-import type { Bounds, Polygon, River, RoadEdge, RoadNetwork, RoadNode, StandingWater, Vec2 } from "../types";
+import type { Bounds, Polygon, River, RoadEdge, RoadNetwork, RoadNode, StandingWater, TerrainModel, Vec2, VillageParams, WaterBody } from "../types";
 import type { Rng } from "../rng";
 import { catmullRom } from "../geometry/catmullRom";
 import { contains, ensureCCW } from "../geometry/polygon";
@@ -20,6 +20,47 @@ export interface StandingWaterParams {
     river?: River;
     radius: number;
     kind: "auto" | StandingWater["kind"];
+}
+
+export interface HydrologyParams {
+    terrain: TerrainModel;
+    boundary: Polygon;
+    radius: number;
+    riverChance: number;
+    riverWidth: number;
+    standingWaterKind: VillageParams["standingWaterKind"];
+    roads: RoadNetwork;
+}
+
+/** Resolve all water from the selected terrain site before roads use it. */
+export function generateHydrology(rng: Rng, params: HydrologyParams): WaterBody[] {
+    const riverChance = terrainRiverChance(params.terrain.profile, params.riverChance);
+    const river = rng.chance(riverChance)
+        ? generateRiver(rng, { boundary: params.boundary, mapBounds: params.terrain.bounds, radius: params.radius, width: params.riverWidth })
+        : undefined;
+    const kind = params.standingWaterKind === "auto" ? terrainWaterKind(params.terrain.profile) : params.standingWaterKind;
+    const standing = generateStandingWater(rng, {
+        boundary: params.boundary,
+        mapBounds: params.terrain.bounds,
+        roads: params.roads,
+        river,
+        radius: params.radius,
+        kind,
+    });
+    return river ? [river, standing] : [standing];
+}
+
+function terrainRiverChance(profile: TerrainModel["profile"], configured: number): number {
+    if (configured === 0 || configured === 1) return configured;
+    if (profile === "river-valley") return Math.max(configured, 0.9);
+    if (profile === "ridge" || profile === "hillside" || profile === "island") return Math.min(configured, 0.15);
+    return configured;
+}
+
+function terrainWaterKind(profile: TerrainModel["profile"]): VillageParams["standingWaterKind"] {
+    if (profile === "lakeshore") return "lake";
+    if (profile === "coast" || profile === "cove" || profile === "peninsula" || profile === "island") return "coast";
+    return "pond";
 }
 
 /** Create a seeded, gently meandering channel from one map edge to its opposite. */
