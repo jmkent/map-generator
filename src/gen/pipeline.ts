@@ -12,6 +12,7 @@ import { generateApproaches } from "./stages/approaches";
 import { generateHydrology, integrateRiverCrossings } from "./stages/water";
 import { bounds as polygonBounds } from "./geometry/polygon";
 import { applyHydrology, generateTerrain } from "./stages/terrain";
+import { selectSettlementSite } from "./stages/site";
 
 export const DEFAULT_PARAMS: VillageParams = {
     radius: 125,
@@ -49,14 +50,16 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
     const rng = createRng(seed);
     const terrain = generateTerrain(rng.stream("terrain"), { radius: p.radius, profile: p.terrainProfile });
 
-    const boundary = generateBoundary(rng.stream("boundary"), {
+    const initialBoundary = generateBoundary(rng.stream("boundary"), {
         radius: p.radius,
         points: p.boundaryPoints,
         irregularity: p.boundaryIrregularity,
     });
 
-    const bounds = polygonBounds(boundary);
     const mapBounds = terrain.bounds;
+    const preliminarySite = selectSettlementSite(rng.stream("site"), { terrain, radius: p.radius });
+    const boundary = initialBoundary.map((point) => ({ x: point.x + preliminarySite.anchor.x, y: point.y + preliminarySite.anchor.y }));
+    const bounds = polygonBounds(boundary);
     const settlement = generateLayout(rng.stream("layout"), {
         boundary,
         radius: p.radius,
@@ -98,6 +101,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
     });
     const river = water.find((body): body is Extract<typeof body, { kind: "river" }> => body.kind === "river");
     const terrainWithHydrology = applyHydrology(terrain, water);
+    const site = preliminarySite;
     const roads = river ? integrateRiverCrossings(approachedRoads, river) : approachedRoads;
     const parcels = generateParcels(rng.stream("parcels"), {
         boundary,
@@ -124,6 +128,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         bounds,
         mapBounds,
         terrain: terrainWithHydrology,
+        site,
         boundary,
         settlement,
         civicSpaces: settlement.civicSpaces,

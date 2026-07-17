@@ -25,7 +25,8 @@ describe("boundary invariants", () => {
 
     for (const seed of seeds) {
         it(`produces a valid boundary for seed "${seed}"`, () => {
-            const { boundary, params } = generateVillage(seed);
+            const model = generateVillage(seed);
+            const { boundary, params } = model;
 
             expect(boundary).toHaveLength(params.boundaryPoints);
             expect(isSimple(boundary)).toBe(true);
@@ -35,7 +36,7 @@ describe("boundary invariants", () => {
             const lo = params.radius * (1 - params.boundaryIrregularity);
             const hi = params.radius * (1 + params.boundaryIrregularity);
             for (const v of boundary) {
-                const r = Math.hypot(v.x, v.y);
+                const r = Math.hypot(v.x - model.site.anchor.x, v.y - model.site.anchor.y);
                 expect(r).toBeGreaterThanOrEqual(lo - 1e-9);
                 expect(r).toBeLessThanOrEqual(hi + 1e-9);
             }

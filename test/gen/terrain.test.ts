@@ -39,5 +39,7 @@ describe("terrain-first generation", () => {
         expect(Math.abs(cove.settlement.axis.x)).toBeGreaterThan(0.99);
         expect(valley.terrain.hydrology).toEqual(valley.water);
         expect(valley.terrain.samples.some((sample) => !sample.land && !sample.buildable)).toBe(true);
+        expect(valley.site.componentSize).toBeGreaterThan(0);
+        expect(valley.terrain.samples.some((sample) => sample.buildable && Math.abs(sample.slope) < 0.22)).toBe(true);
     });
 });

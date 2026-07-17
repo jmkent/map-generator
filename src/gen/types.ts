@@ -59,6 +59,14 @@ export interface TerrainModel {
     hydrology: WaterBody[];
 }
 
+/** A terrain-valid location chosen for the settlement before its envelope is drawn. */
+export interface SettlementSite {
+    anchor: Vec2;
+    componentSize: number;
+    suitability: number;
+    rationale: string;
+}
+
 /** Historical-inspired preset used to choose a settlement layout. */
 export type SettlementProfile = "auto" | "estate" | "weiler" | "haufendorf" | "reihendorf" | "tenement" | "angerdorf" | "rundling";
 export type ResolvedSettlementProfile = Exclude<SettlementProfile, "auto">;
@@ -243,6 +251,7 @@ export interface MapModel {
     /** Village bounds expanded with countryside and off-map entrances. */
     mapBounds: Bounds;
     terrain: TerrainModel;
+    site: SettlementSite;
     boundary: Polygon;
     settlement: SettlementLayout;
     civicSpaces: CivicSpace[];

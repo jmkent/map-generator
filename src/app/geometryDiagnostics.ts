@@ -20,6 +20,7 @@ export function geometryDiagnostics(model: MapModel): string[] {
 
     return [
         `terrain: ${model.terrain.profile}; ${buildablePercent(model.terrain.samples)}% buildable`,
+        `site: ${model.site.rationale}; ${Math.round(model.site.suitability * 100)}% suitability`,
         `layout: ${model.settlement.profile}`,
         `roads: ${model.roads.nodes.length} nodes, ${model.roads.edges.length} segments (${roadCounts})`,
         water,
