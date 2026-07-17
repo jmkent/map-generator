@@ -81,6 +81,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         laneWidth: p.laneRoadWidth,
         frontage: p.lotWidth,
         layout: settlement,
+        terrain,
     });
     const approachedRoads = generateApproaches(rng.stream("approaches"), {
         boundary,

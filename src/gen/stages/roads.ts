@@ -9,11 +9,12 @@
 // existing corridors. The soup of segments is handed to `planarize`, which splits
 // every crossing into a shared node.
 
-import type { Polygon, RoadClass, RoadNetwork, SettlementLayout, Vec2 } from "../types";
+import type { Polygon, RoadClass, RoadNetwork, SettlementLayout, TerrainModel, Vec2 } from "../types";
 import type { Rng } from "../rng";
 import { centroid, contains, distanceToBoundary, inset, intersectRayPolygon } from "../geometry/polygon";
 import { catmullRom } from "../geometry/catmullRom";
 import { planarize, type SegmentInput } from "../geometry/graph";
+import { terrainSampleAt } from "./terrain";
 import { add, dist, normalize, perp, scale, sub } from "../geometry/vec2";
 
 export interface RoadParams {
@@ -36,10 +37,15 @@ export interface RoadParams {
     /** Typical lot frontage, used to keep branch roads useful and well spaced. */
     frontage: number;
     layout: SettlementLayout;
+    /** Terrain substrate; roads avoid water and slopes steeper than they can climb. */
+    terrain?: TerrainModel;
 }
 
 const MIN_EDGE_LEN = 1e-3;
 const MIN_LANE_LOTS = 2;
+// Roads may climb somewhat steeper ground than a lot can sit on (buildable is
+// slope < 0.22), but they never cross water or genuinely steep terrain.
+const MAX_ROAD_SLOPE = 0.32;
 
 interface RoadGenerationContext {
     rng: Rng;
@@ -49,6 +55,44 @@ interface RoadGenerationContext {
     junctionSpacing: number;
     jitter: number;
     samples: number;
+    terrain?: TerrainModel;
+}
+
+/** A point roads may occupy: dry land no steeper than they can traverse. */
+function traversablePoint(terrain: TerrainModel | undefined, point: Vec2): boolean {
+    if (!terrain) return true;
+    const sample = terrainSampleAt(terrain, point);
+    return sample.land && sample.slope <= MAX_ROAD_SLOPE;
+}
+
+function untraversableCount(context: RoadGenerationContext, points: readonly Vec2[]): number {
+    if (!context.terrain) return 0;
+    let count = 0;
+    for (const point of points) if (!traversablePoint(context.terrain, point)) count++;
+    return count;
+}
+
+function routeTraversable(context: RoadGenerationContext, points: readonly Vec2[]): boolean {
+    return untraversableCount(context, points) === 0;
+}
+
+/** A must-have through-road that prefers the terrain grain: try the intended axis,
+ *  then small rotations, and keep the route that crosses the least bad ground. The
+ *  route is never dropped, so the network always has a connected spine. */
+function bestThroughRoad(context: RoadGenerationContext, anchor: Vec2, axis: Vec2): Vec2[] {
+    let best = throughRoad(context, anchor, axis);
+    let bestCost = untraversableCount(context, best);
+    if (bestCost === 0) return best;
+    for (const delta of [0.35, -0.35, 0.7, -0.7, 1.05, -1.05]) {
+        const points = throughRoad(context, anchor, rotate(axis, delta));
+        const cost = untraversableCount(context, points);
+        if (cost < bestCost) {
+            best = points;
+            bestCost = cost;
+            if (bestCost === 0) break;
+        }
+    }
+    return best;
 }
 
 interface Route {
@@ -94,16 +138,19 @@ export function generateRoads(rng: Rng, params: RoadParams): RoadNetwork {
         junctionSpacing: primaryAnchorSpacing,
         jitter,
         samples,
+        terrain: params.terrain,
     };
 
     // Primary through-roads. Start with a trunk, then place mostly parallel cross
     // streets at separated points on it. This is a compact, intentionally loose
     // grid: irregular enough to avoid a city-block pattern, but still legible.
+    // The trunk runs with the terrain grain (the terrain-derived layout axis) so
+    // the settlement follows valleys, ridgelines, and shorelines.
     const primaryRoutes: Route[] = [];
     const primaryAnchors: Vec2[] = [];
-    const baseAngle = rng.float(0, Math.PI);
+    const baseAngle = Math.atan2(params.layout.axis.y, params.layout.axis.x) + rng.float(-0.3, 0.3);
     const trunkAxis: Vec2 = { x: Math.cos(baseAngle), y: Math.sin(baseAngle) };
-    const trunk = throughRoad(context, trunkAnchor, trunkAxis);
+    const trunk = bestThroughRoad(context, trunkAnchor, trunkAxis);
     primaryRoutes.push({ kind: "primary", points: trunk });
     pushPolyline(trunk, "primary", params.primaryWidth);
 
@@ -124,9 +171,12 @@ export function generateRoads(rng: Rng, params: RoadParams): RoadNetwork {
             }
         }
         if (!anchor) continue;
-        primaryAnchors.push(anchor);
         const axis = rotate(crossAxisBase, rng.float(-0.24, 0.24));
         const poly = throughRoad(context, anchor, axis);
+        // A cross street is optional: drop it rather than run it into water or up a
+        // slope it cannot climb. Its anchor is only recorded once the street is kept.
+        if (!routeTraversable(context, poly)) continue;
+        primaryAnchors.push(anchor);
         primaryRoutes.push({ kind: "primary", points: poly });
         pushPolyline(poly, "primary", params.primaryWidth);
     }
@@ -173,6 +223,7 @@ function generateProfileRoads(rng: Rng, params: RoadParams): RoadNetwork {
         junctionSpacing: spacing,
         jitter: params.jitter,
         samples: params.samples,
+        terrain: params.terrain,
     };
     const segments: SegmentInput[] = [];
     const addRoute = (points: Vec2[], kind: RoadClass, width: number): void => {
@@ -286,7 +337,7 @@ function findSecondaryConnector(
         // rejecting a valid route solely because it reconnects the graph.
         const midpoint = scale(add(a, b), 0.5);
         const points = dedupe(catmullRom([a, midpoint, b], samples));
-        return points.every((point) => insideOrOn(safeArea, point)) ? { a, b, points } : null;
+        return points.every((point) => insideOrOn(safeArea, point)) && routeTraversable(context, points) ? { a, b, points } : null;
     };
 
     // Cross streets are separate corridors that both meet the trunk. Joining
@@ -335,6 +386,7 @@ function findLaneBranch(context: RoadGenerationContext, routes: readonly Route[]
         );
         const points = dedupe(catmullRom([anchor, control, tip], samples));
         if (!points.every((point) => insideOrOn(safeArea, point))) continue;
+        if (!routeTraversable(context, points)) continue;
         if (!hasBranchClearance(points, [anchor], routes.map((route) => route.points), roadSpacing)) continue;
         return { anchor, points };
     }

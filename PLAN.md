@@ -612,11 +612,32 @@ from the height field.
 **Deliverable:** road networks that avoid unbuildable steep ground, run with the grain of the land,
 and cross water at deliberate points.
 
+**Delivery sequence:**
+- **[x] M12a — terrain-constrained routing (clustered generator).** `roads.ts` consumes the base
+  `TerrainModel`. The `haufendorf` trunk runs with the terrain grain (the terrain-derived layout
+  axis via `bestThroughRoad`, which searches nearby axes to stay on traversable ground); optional
+  cross streets, secondary connectors, and lanes are dropped where they would cross water or ground
+  steeper than `MAX_ROAD_SLOPE`. The must-have spine is never dropped, so the graph stays connected.
+  Roads see the pre-hydrology terrain, so they avoid height-field water; river crossings stay the
+  job of `integrateRiverCrossings`.
+- **[ ] M12b — deliberate river crossings.** Generate the river early (from terrain) so roads can
+  choose a narrow, low-slope bank crossing before planarization instead of accepting whatever
+  intersection occurs; carry the chosen-site rationale on the crossing node. Requires splitting the
+  hydrology stage so the river precedes roads while standing water still follows them.
+- **[ ] M12c — height-field hydrology geometry (M10 carryover).** Trace river channels down the
+  gradient to a lake or coast and shorelines along the sub-sea-level contour, replacing the
+  profile-heuristic placement so banks and shores are real terrain features.
+- **[ ] M12d — profile-form & approach corridors.** Extend terrain-constrained routing to the
+  non-`haufendorf` profiles, and make approaches and primaries enter the site through terrain gaps
+  (valley mouths, shore edges).
+
 **Test plan:**
-- **Invariants:** no accepted road segment exceeds the traversable-slope threshold beyond
-  tolerance; every river crossing is a flagged bridge node at a low-slope bank; graph stays
-  connected and planar; approaches still reach the terrain edge.
-- **Determinism + stream isolation; golden SVG; mesher.**
+- **Invariants:** no accepted road segment exceeds the traversable-slope threshold beyond tolerance
+  and none lies on water *(M12a — asserted against the base terrain roads consume, across relief
+  profiles and seeds)*; every river crossing is a flagged bridge node at a low-slope bank *(M12b)*;
+  graph stays connected and planar; approaches still reach the terrain edge.
+- **Determinism + stream isolation; golden SVG.** The road-topology invariants pin `plain` terrain
+  so they exercise the algorithm independent of relief; a separate suite covers relief behavior.
 
 ### [ ] M13 — Terrain-constrained parcels, buildings & siting refinement
 Parcels and buildings must respect the same terrain the roads now follow, and settlement

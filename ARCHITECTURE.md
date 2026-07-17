@@ -289,6 +289,15 @@ street make a useful contribution without preventing nearby homes?
 - A connector must begin and end on existing routes, stay clear of existing
   junctions, and fit within a bounded local span.
 - Every accepted curve must stay inside the inset boundary.
+- Every accepted curve must stay on **traversable terrain** — dry land no steeper
+  than a road can climb (M12). The clustered generator reads the base terrain
+  height field for this: the trunk runs with the grain of the land (the
+  terrain-derived layout axis), searching nearby orientations to keep off water
+  and steep ground, while cross streets, connectors, and lanes that would cross
+  water or a steep face are simply dropped. The trunk is never dropped, so the
+  network keeps a connected spine even on constrained ground. Roads read the
+  terrain *before* hydrology, so they avoid height-field water; a river placed
+  afterwards is still handled by bridge crossings.
 - Secondary and lane targets are budgets. Failed candidates do not trigger a
   replacement orphan road elsewhere.
 
@@ -427,14 +436,17 @@ a deliberate generation change.
 ## Future phase boundaries
 
 The terrain-first re-architecture is partway done. M9–M11 put the substrate in
-place — relief, terrain-driven hydrology selection, and siting — but the older
-road, parcel, and building stages do not yet read the height field. The remaining
-work hands that ownership over, and only then paints decoration on top:
+place — relief, terrain-driven hydrology selection, and siting — and M12 has begun
+handing road geometry over to it. The parcel and building stages still do not read
+the height field. The remaining work completes that handover, and only then paints
+decoration on top:
 
-- **M12 terrain-constrained roads & crossings:** route roads around traversable
-  slope and along natural corridors, and choose river crossings at stable bank
-  points. This also lands the deferred half of hydrology — tracing channel and
-  shore geometry from the height field instead of the current heuristics.
+- **M12 terrain-constrained roads & crossings:** the clustered generator now routes
+  roads onto traversable land and runs the trunk with the terrain grain (M12a).
+  Still to come: choosing river crossings at stable bank points by generating the
+  river before roads (M12b), tracing channel and shore geometry from the height
+  field instead of the current heuristics (M12c), and extending both to the other
+  settlement profiles and the approach corridors (M12d).
 - **M13 terrain-constrained parcels, buildings & siting refinement:** exclude
   water, floodplain, steep, and inaccessible land from lots and houses; weight
   density by buildability; and derive the settlement envelope and morphology from

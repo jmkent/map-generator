@@ -6,6 +6,7 @@ import { createRng } from "../../src/gen/rng";
 import { generateBoundary } from "../../src/gen/stages/boundary";
 import { componentCount, roadChains } from "../../src/gen/geometry/graph";
 import { contains, distanceToBoundary } from "../../src/gen/geometry/polygon";
+import { generateTerrain, terrainSampleAt } from "../../src/gen/stages/terrain";
 
 const SEEDS = ["village", "hamlet", "riverford", "0", "zzz", "mistmoor"];
 
@@ -48,7 +49,7 @@ function chainLength(points: Pt[]): number {
 describe("road network invariants", () => {
     for (const seed of SEEDS) {
         it(`produces a connected planar network for seed "${seed}"`, () => {
-            const model: MapModel = generateVillage(seed, { settlementProfile: "haufendorf" });
+            const model: MapModel = generateVillage(seed, { settlementProfile: "haufendorf", terrainProfile: "plain" });
             const net = model.roads;
             const pos = new Map(net.nodes.map((n) => [n.id, n.pos]));
 
@@ -112,7 +113,7 @@ describe("road network invariants", () => {
 describe("approach roads", () => {
     for (const seed of ["village", "hamlet", "riverford", "tarry"]) {
         it(`connects ${seed} to map-edge entrances`, () => {
-            const model = generateVillage(seed, { settlementProfile: "haufendorf" });
+            const model = generateVillage(seed, { settlementProfile: "haufendorf", terrainProfile: "plain" });
             const approaches = model.roads.edges.filter((edge) => edge.kind === "approach");
             const positions = new Map(model.roads.nodes.map((node) => [node.id, node.pos]));
             const degree = degrees(model.roads);
@@ -137,12 +138,12 @@ describe("approach roads", () => {
 });
 
 it('can close local blocks with secondary connectors for seed "waxony"', () => {
-    const net = generateVillage("waxony", { settlementProfile: "haufendorf" }).roads;
+    const net = generateVillage("waxony", { settlementProfile: "haufendorf", terrainProfile: "plain" }).roads;
     expect(net.edges.length - net.nodes.length + componentCount(net)).toBeGreaterThanOrEqual(1);
 });
 
-it('keeps secondary roads connected at both ends for seed "tarry"', () => {
-    const net = generateVillage("tarry", { settlementProfile: "haufendorf" }).roads;
+it('keeps secondary roads connected at both ends for seed "mistmoor"', () => {
+    const net = generateVillage("mistmoor", { settlementProfile: "haufendorf", terrainProfile: "plain" }).roads;
     const degree = degrees(net);
     const secondaryEdges = net.edges.filter((edge) => edge.kind === "secondary");
     expect(secondaryEdges.length).toBeGreaterThan(0);
@@ -170,6 +171,48 @@ describe("road determinism and stream isolation", () => {
             irregularity: DEFAULT_PARAMS.boundaryIrregularity,
         });
         expect(model.boundary).toEqual(boundary);
+    });
+});
+
+describe("terrain-constrained roads (M12)", () => {
+    const TERRAIN_SEEDS = ["village", "hamlet", "riverford", "mistmoor"];
+    const RELIEF = ["coast", "island", "ridge", "hillside", "lakeshore"] as const;
+    const SLOPE_TOLERANCE = 0.06; // edge midpoints lie between accepted sample points.
+
+    for (const terrainProfile of RELIEF) {
+        for (const seed of TERRAIN_SEEDS) {
+            it(`keeps "${seed}" roads on traversable land for ${terrainProfile} terrain`, () => {
+                const model = generateVillage(seed, { settlementProfile: "haufendorf", terrainProfile });
+                const net = model.roads;
+                const pos = new Map(net.nodes.map((n) => [n.id, n.pos]));
+
+                // Assert against the base terrain the road stage actually saw, not
+                // the hydrology-applied terrain on the model: roads are bridged over
+                // rivers and standing water is placed afterwards, so those exclusions
+                // are not what road routing is responsible for avoiding.
+                const base = generateTerrain(createRng(seed).stream("terrain"), { radius: DEFAULT_PARAMS.radius, profile: terrainProfile });
+
+                // The connected spine survives even where terrain trims optionals.
+                expect(componentCount(net)).toBe(1);
+
+                for (const edge of net.edges) {
+                    // Approaches deliberately leave the settlement for the map edge,
+                    // where the surrounding country is unconstrained; skip them.
+                    if (edge.kind === "approach") continue;
+                    const a = pos.get(edge.a)!;
+                    const b = pos.get(edge.b)!;
+                    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+                    const sample = terrainSampleAt(base, mid);
+                    expect(sample.land, `edge on water at ${mid.x.toFixed(1)},${mid.y.toFixed(1)}`).toBe(true);
+                    expect(sample.slope, `edge too steep at ${mid.x.toFixed(1)},${mid.y.toFixed(1)}`).toBeLessThanOrEqual(0.32 + SLOPE_TOLERANCE);
+                }
+            });
+        }
+    }
+
+    it("is deterministic on relief terrain", () => {
+        expect(generateVillage("island-town", { terrainProfile: "island" }).roads)
+            .toEqual(generateVillage("island-town", { terrainProfile: "island" }).roads);
     });
 });
 
