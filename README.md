@@ -59,9 +59,10 @@ local landscape, then settles a village onto it.
   rivers **vary in width**, widening downstream; approaches keep to dry, gentle
   corridors.
 
-Next up (see [PLAN.md](./PLAN.md)): handing parcel and building geometry over to the
-terrain (M13), then *decorative land cover* — fields and woodlands (M14) — and
-interactivity and inspection overlays (M15).
+Next up (see [PLAN.md](./PLAN.md)): coloring the map by terrain height — a
+topographic gradient, a framed map, and a distinct background (M13); handing parcel
+and building geometry over to the terrain (M14); then *decorative land cover* —
+fields and woodlands (M15) — and interactivity and inspection overlays (M16).
 
 ## Running
 
@@ -112,7 +113,7 @@ Techniques used or planned (see PLAN.md for where each lands):
   https://www.redblobgames.com/ (esp. [polygonal map generation](https://www.redblobgames.com/maps/mapgen4/) and [making maps with noise](https://www.redblobgames.com/maps/terrain-from-noise/))
 - Poisson-disk sampling (for clustered house/tree placement) —
   https://www.jasondavies.com/poisson-disc/ and Bridson's algorithm
-- Voronoi diagrams + Lloyd's relaxation (for decorative land-cover fields, M14) —
+- Voronoi diagrams + Lloyd's relaxation (for decorative land-cover fields, M15) —
   [`d3-delaunay`](https://github.com/d3/d3-delaunay)
 - Catmull–Rom splines (for organic road curves, M2) —
   https://en.wikipedia.org/wiki/Centripetal_Catmull%E2%80%93Rom_spline

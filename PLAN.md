@@ -35,7 +35,7 @@ This boundary is what makes "refine from there" cheap instead of a rewrite.
 ## 2. Confirmed decisions
 
 - **Geometry libs:** `d3-delaunay` approved for Voronoi/relaxation (fields, lot
-  subdivision). Wired in at **M14** (decorative land cover), not before. `polygon-clipping`
+  subdivision). Wired in at **M15** (decorative land cover), not before. `polygon-clipping`
   deferred until a stage actually needs boolean ops. Everything through M8 (road-graph
   planarization and water) uses hand-rolled primitives (bbox, inset, SAT, segment/spline
   intersection).
@@ -43,7 +43,7 @@ This boundary is what makes "refine from there" cheap instead of a rewrite.
   projection, so a narrow FOV (~8°) viewed from a correspondingly large radius makes
   perspective divergence negligible, giving the flat, map-like watabou feel. Fixed tilt,
   controls locked, auto-framed to bounds. Widening the FOV yields a perspective "diorama"
-  toggle, deferred to **M15**.
+  toggle, deferred to **M16**.
 - **RNG:** seedable 32-bit PRNG (mulberry32/sfc32) with **named streams** — each stage's
   generator derived from `hash(masterSeed, streamName)` so adding/reordering a stage does
   not shift earlier stages' random sequences. Regressions stay local; untouched stages'
@@ -68,7 +68,7 @@ src/
       graph.ts             # road-graph planarization: edge intersection + splitting
       contour.ts           # marching-squares iso-contours (shoreline tracing, M12c)
       sampling.ts          # weighted pick, poisson-disk, jitter
-      voronoi.ts           # d3-delaunay wrapper + Lloyd relaxation (M14, land cover)
+      voronoi.ts           # d3-delaunay wrapper + Lloyd relaxation (M15, land cover)
     stages/
       terrain.ts           # SUBSTRATE: height field, slope, buildability (runs first, M9)
       site.ts              # settlement siting on connected buildable land (M11)
@@ -79,16 +79,16 @@ src/
       approaches.ts        # extend primaries to the map edge as entrances (M6)
       parcels.ts           # subdivide buildable band into lots (water-aware)
       buildings.ts         # place clustered house footprints (water-aware)
-      landCover.ts         # DECORATIVE: fields, woodlands, grass (M14)
+      landCover.ts         # DECORATIVE: fields, woodlands, grass (M15)
   render/                  # ── Babylon. Consumes MapModel. ──
     Renderer.ts            # engine/scene lifecycle
     framing.ts             # pure near-orthographic framing math (tested)
     camera.ts              # fixed-angle near-ortho camera + auto-frame to bounds
-    palette.ts             # materials/colors
-    geometryData.ts        # plain GeometryData type + Babylon upload adapter
+    palette.ts             # elevation gradient (heightColor) + scene colors (M13)
+    geometryData.ts        # plain GeometryData type (+ per-vertex colors, M13) + Babylon upload
     meshers/
       terrainMesher.ts     # terrain samples → raised relief grid (M9)
-      groundMesher.ts      # land-cover cells → zoned ground (M14)
+      groundMesher.ts      # land-cover cells → zoned ground (M15)
       roadMesher.ts        # road polylines → ribbons
       waterMesher.ts       # water bodies/river channel → flat water surface
       buildingMesher.ts    # footprints → extruded, thin-instanced
@@ -127,7 +127,7 @@ Babylon into the module graph.
   near; a large **lake/ocean** becomes a **border** that replaces part of the boundary and
   makes a waterfront town. All feed the density falloff so the village hugs the water.
 - **Decorative land cover:** material-zoned ground filling what's left after terrain + water +
-  settlement; farmland fields as **Voronoi + Lloyd relaxation** patches (M14); woodlands as
+  settlement; farmland fields as **Voronoi + Lloyd relaxation** patches (M15); woodlands as
   thin-instanced trees seeded by the Poisson sampler under a density mask. No constraint on layout.
 - **Houses:** footprint polygon (rect with occasional L/T variation) → `inset` for wall
   thickness → extrude to a seeded height → optional roof prism. Thin-instanced via
@@ -152,11 +152,12 @@ Each milestone is a shippable vertical slice. The village "clicks" visually at *
 > bottom-up — boundary, roads, morphology, approaches, then *structural water* (rivers, ponds,
 > lakes, coast) as the earliest layout constraint. **M9** then inverted the pipeline to be
 > *terrain-first*: a `TerrainModel` is generated before anything else, and M9–M11 established the
-> relief substrate, terrain-driven hydrology selection, and settlement siting. The remaining work
-> (**M12–M15**) hands road, parcel, and building geometry over to the terrain, then paints
-> *decorative land cover* (fields/woodlands) on what is left, and finally adds interactivity and
-> inspection. Constraints still land at the earliest phase that can enforce them; decoration stays
-> last.
+> relief substrate, terrain-driven hydrology selection, and settlement siting, and **M12** handed
+> road geometry and water over to the terrain. The remaining work (**M13–M16**) colors the map by
+> terrain height (M13), finishes handing parcel and building geometry to the terrain (M14), paints
+> *decorative land cover* (fields/woodlands) on what is left (M15), and adds interactivity and
+> inspection (M16). Constraints still land at the earliest phase that can enforce them; decoration
+> stays last.
 
 ### [x] M0 — Scaffold & fixed-angle stage
 Strip the sandbox demo from `src/main.ts`. Stand up `Renderer` + a near-orthographic camera
@@ -484,13 +485,14 @@ hugging the shore; ponds dotting the interior.
   dock road terminates at the shore.
 - **Determinism + golden + mesher.**
 
-> **Terrain-first re-architecture (M9–M15).** Through M8, water was the earliest
+> **Terrain-first re-architecture (M9–M16).** Through M8, water was the earliest
 > structural constraint and the boundary was an unanchored organic outline. M9 inverts this:
 > a `TerrainModel` is generated *first* and everything else is progressively handed over to
 > it. M9–M11 are shipped and establish the substrate (relief, hydrology selection, siting);
-> M12–M15 finish the handover (roads, parcels, land cover, interactivity). Where a shipped
-> milestone realized only part of its title, the outstanding half is named explicitly and
-> scheduled into a later milestone rather than silently claimed.
+> M12 and M14 finish the geometry handover (roads, then parcels and buildings), M15 paints
+> decorative land cover, and M16 adds interactivity — with M13 coloring the map by terrain height
+> along the way. Where a shipped milestone realized only part of its title, the outstanding half is
+> named explicitly and scheduled into a later milestone rather than silently claimed.
 
 ### [x] M9 — Terrain substrate & visible relief
 Generation now begins with terrain. `stages/terrain.ts` runs first in the pipeline — before the
@@ -529,7 +531,7 @@ buildable surface; the profile visibly shapes relief and settlement orientation.
 - **Orientation:** valley/coast axes align with the profile's preferred direction.
 
 **Deferred:** the substrate is analytical and the legacy boundary/water/road stages still own
-their own geometry. M10–M13 progressively hand that ownership to the terrain.
+their own geometry. M10–M12 and M14 progressively hand that ownership to the terrain.
 
 ### [x] M10 — Terrain-owned hydrology
 `stages/water.ts` gains `generateHydrology`, which resolves all water from the selected terrain
@@ -585,7 +587,7 @@ center by default, and the choice is inspectable.
 **Deferred:** the envelope is still the seeded organic outline translated to the anchor, not a
 shape derived from the buildable component's extent; terrain–morphology compatibility (rejecting a
 profile a site cannot support, biasing profile selection by available land) is not yet resolved.
-Both are picked up as siting/morphology refinements in M13.
+Both are picked up as siting/morphology refinements in M14.
 
 ### [x] M12 — Terrain-constrained roads & crossings
 Roads currently ignore relief. This milestone makes circulation follow the terrain: routes prefer
@@ -649,8 +651,8 @@ and cross water at deliberate points.
   `holes`, so an island's ring-shaped sea is traced as an outer polygon with the island as a hole
   (`terrainSea`); `applyHydrology`, parcel exclusion, `distanceToWater`, the SVG renderer
   (even-odd path), and the water mesher (hole-bridged ear clipping) all honor holes. Deferred to
-  M13+: rivers still follow a Catmull meander rather than steepest descent; approaches reject bad
-  corridors rather than being actively routed toward the best gap.
+  later milestones: rivers still follow a Catmull meander rather than steepest descent; approaches
+  reject bad corridors rather than being actively routed toward the best gap.
 
 **Test plan:**
 - **Invariants:** no accepted road segment exceeds the traversable-slope threshold beyond tolerance
@@ -668,7 +670,59 @@ and cross water at deliberate points.
   `plain` terrain so they exercise the algorithm independent of relief (a coast can legitimately
   drop entrances below `approachRoadMin`); separate suites cover relief and coastline behavior.
 
-### [ ] M13 — Terrain-constrained parcels, buildings & siting refinement
+### [ ] M13 — Terrain height visualization
+The renderers now carry a full height field but show none of it: the SVG debug renderer paints one
+flat grass rect and never reads `model.terrain`, and the Babylon terrain is a single flat green on a
+same-green background. So a ridge, valley, and plain look identical, the sea reads as land, and the
+map has no visible edge. This milestone colors the whole scene by elevation, frames the map, and
+separates it from the field of view — in both the SVG (golden-tested) and Babylon renderers.
+
+**Scope:**
+- **Shared palette module:** create `src/render/palette.ts` (pure, no Babylon — the file §3 has
+  always listed). It exports `heightColor(height, seaLevel, minHeight, maxHeight)` — one continuous
+  ramp, split at sea level (below-sea → deep→shallow blue; at/above sea → coast→land→highland→peak) —
+  plus scene color constants (non-map background, map frame), migrating the currently-inlined feature
+  colors here as a bonus. Both `src/debug/` and `src/render/` import it (pure data, no cycle).
+- **Per-terrain normalization:** compute min/max `height` across `terrain.samples` so every profile
+  uses the full ramp regardless of absolute range (heights span ~−77..+65 across profiles).
+- **SVG hypsometric bands:** a terrain-band layer under everything. Build a `ContourGrid` from the
+  sample heights and, by painter's algorithm, fill the map rect with the peak color, then draw
+  `isoContours(grid, Tᵢ)` for ~10 thresholds high→low as one `<path fill-rule="evenodd">` per band
+  (even-odd handles nested peaks/holes). The sea-level contour is the coastline, so coast/land
+  delineation falls out for free. Reuses `isoContours` (`geometry/contour.ts`) and `gridPoint`
+  (`stages/terrain.ts`); keeps 2-decimal rounding for determinism.
+- **Map framing:** widen the SVG `padding` (~8→~30 units) for a visible margin, fill the canvas with
+  the dark-slate non-map background, and stroke a frame rect around `terrain.bounds` (= `mapBounds`).
+- **Water layering:** rivers/ponds/lakes stay drawn on top as flat surface-blue (they sit on
+  above-sea land, not in the height field); the coast sea is already shown by the below-sea bands,
+  so its fill is dropped (an optional thin shoreline stroke aside).
+- **Babylon per-vertex color:** add `colors?: Float32Array` (RGBA, 4/vertex) to `GeometryData`;
+  `terrainMesher` computes a per-vertex color from the same `heightColor` (continuous → smooth
+  gouraud gradient); `Renderer` passes `colors` to `createMeshFromData` (lite's optional trailing
+  arg; no material flag needed), sets `clearColor` to the non-map background, and frames the map. 2D
+  bands and 3D vertex colors agree because they share one ramp.
+
+**Deliverable:** a topographic-looking map — blue depths through green lowland to pale peaks, a clear
+coastline, a framed map, and a distinct background — that makes terrain height and the remaining
+milestones' output far easier to eyeball.
+
+**Delivery sequence:**
+- **M13a — palette + SVG bands & framing.** The verifiable, reviewable slice: `palette.ts`, the
+  terrain-band layer, dark background, map frame, wider padding. Regenerate and review the goldens.
+- **M13b — Babylon vertex colors & frame.** `GeometryData.colors`, `terrainMesher` colors, `Renderer`
+  upload + `clearColor` + map frame.
+
+**Test plan:**
+- **Palette unit:** `heightColor` is monotonic within each ramp, splits correctly at sea level,
+  matches the endpoint hexes, and keeps channels in [0,1].
+- **Mesher (new — `terrainMesher` currently has no test):** the `colors` buffer is vertexCount·4,
+  all finite; below-sea vertices are blue-dominant, above-sea green/brown (not blue).
+- **SVG:** determinism preserved; the band layer, map-frame rect, and dark background are present;
+  regenerate the three goldens (size stays modest — ~10 band paths, not thousands of cells).
+- **Determinism + golden.** `contour.isoContours` is already unit-tested; the Babylon `Renderer`
+  stays an untested WebGPU adapter per the existing architecture.
+
+### [ ] M14 — Terrain-constrained parcels, buildings & siting refinement
 Parcels and buildings must respect the same terrain the roads now follow, and settlement
 siting/morphology finishes its handover to the terrain (the deferred half of M11).
 
@@ -692,7 +746,7 @@ and a settlement shape that fits its site.
   correlates with buildability.
 - **Determinism + golden + mesher.**
 
-### [ ] M14 — Land cover & countryside structure
+### [ ] M15 — Land cover & countryside structure
 With settlement fixed, fill the remaining terrain with decorative land cover — the first stage that
 is purely additive and never constrains layout.
 
@@ -716,7 +770,7 @@ around the village.
   land without gaps or overlaps.
 - **Determinism + golden; mesher (field/tree/ground counts, no NaNs).**
 
-### [ ] M15 — Interactivity & terrain diagnostics
+### [ ] M16 — Interactivity & terrain diagnostics
 Expose the now terrain-driven model through controls and inspection, and finish presentation polish.
 
 **Scope:**

@@ -152,7 +152,7 @@ valley floor rather than defaulting to the center of the map.
 
 The current envelope is still the seeded organic outline translated onto the
 anchor; deriving the outline's *shape* from the buildable component, and letting
-terrain reject an unsuitable morphology, is deferred to M13.
+terrain reject an unsuitable morphology, is deferred to M14.
 
 ### 4. Define where the village can exist
 
@@ -483,16 +483,21 @@ paints decoration on top:
   from the height field (M12c, M12d); and approaches keep to traversable corridors,
   never into the sea, up a cliff, or across the open channel (M12c, M12d). What is
   left sits in later milestones: steepest-descent rivers and traced standing lakes.
-- **M13 terrain-constrained parcels, buildings & siting refinement:** exclude
+- **M13 terrain height visualization:** color the whole scene by elevation (a
+  hypsometric gradient reusing the marching-squares contour code for SVG bands and
+  per-vertex mesh colors in Babylon), frame the map, and give the non-map field of
+  view a distinct background — so terrain height is finally legible. A pure
+  `render/palette.ts` shared by both renderers is the single source of the ramp.
+- **M14 terrain-constrained parcels, buildings & siting refinement:** exclude
   water, floodplain, steep, and inaccessible land from lots and houses; weight
   density by buildability; and derive the settlement envelope and morphology from
   the buildable component rather than translating a fixed outline.
-- **M14 decorative land cover:** add fields, woodland, grassland, and exposed
+- **M15 decorative land cover:** add fields, woodland, grassland, and exposed
   terrain after the settlement is fixed.
   [Voronoi diagrams](https://www.redblobgames.com/x/2022-voronoi-maps/) supply
   field-like patches (the first use of `d3-delaunay`), but land cover fills the
   remaining land — it never chooses the road graph.
-- **M15 interaction and polish:** expose terrain, hydrology, buildability, siting,
+- **M16 interaction and polish:** expose terrain, hydrology, buildability, siting,
   and bridges through controls, URL state, and inspection overlays, without
   weakening the generation/rendering boundary.
 
