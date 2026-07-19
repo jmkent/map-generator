@@ -9,6 +9,7 @@
 import { ROAD_CLASS_POLICIES, type Parcel, type Polygon, type RoadNetwork, type SettlementLayout, type Vec2, type WaterBody } from "../types";
 import type { Rng } from "../rng";
 import { centroid, contains, convexOverlap, ensureCCW, polygonsOverlap } from "../geometry/polygon";
+import { clamp } from "../geometry/scalar";
 import { roadChains } from "../geometry/graph";
 import { add, dist, normalize, perp, scale, sub } from "../geometry/vec2";
 import { distanceToWater } from "./water";
@@ -142,8 +143,4 @@ function pointAtLength(points: Vec2[], target: number): Vec2 {
         acc += segLen;
     }
     return points[points.length - 1];
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-    return Math.max(lo, Math.min(hi, v));
 }

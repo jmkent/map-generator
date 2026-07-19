@@ -11,7 +11,7 @@
 
 import type { Polygon, River, RoadClass, RoadNetwork, SettlementLayout, TerrainModel, Vec2 } from "../types";
 import type { Rng } from "../rng";
-import { centroid, contains, distanceToBoundary, inset, intersectRayPolygon } from "../geometry/polygon";
+import { centroid, contains, distanceToBoundary, inset, intersectRayPolygon, pointSegmentDistance } from "../geometry/polygon";
 import { catmullRom } from "../geometry/catmullRom";
 import { planarize, type SegmentInput } from "../geometry/graph";
 import { terrainSampleAt } from "./terrain";
@@ -530,13 +530,6 @@ function distanceToPolyline(point: Vec2, poly: readonly Vec2[]): number {
     let best = Infinity;
     for (let i = 1; i < poly.length; i++) best = Math.min(best, pointSegmentDistance(point, poly[i - 1], poly[i]));
     return best;
-}
-
-function pointSegmentDistance(point: Vec2, a: Vec2, b: Vec2): number {
-    const ab = sub(b, a);
-    const lengthSq = ab.x * ab.x + ab.y * ab.y;
-    const t = lengthSq > 0 ? Math.max(0, Math.min(1, ((point.x - a.x) * ab.x + (point.y - a.y) * ab.y) / lengthSq)) : 0;
-    return dist(point, add(a, scale(ab, t)));
 }
 
 function insideOrOn(poly: Polygon, point: Vec2): boolean {

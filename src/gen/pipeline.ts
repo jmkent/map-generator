@@ -9,9 +9,9 @@ import { generateParcels } from "./stages/parcels";
 import { generateBuildings } from "./stages/buildings";
 import { generateLayout } from "./stages/layout";
 import { generateApproaches } from "./stages/approaches";
-import { resolveRiver, resolveStandingWater, integrateRiverCrossings } from "./stages/water";
+import { applyHydrology, resolveRiver, resolveStandingWater, integrateRiverCrossings } from "./stages/water";
 import { bounds as polygonBounds } from "./geometry/polygon";
-import { applyHydrology, generateTerrain } from "./stages/terrain";
+import { generateTerrain } from "./stages/terrain";
 import { selectSettlementSite } from "./stages/site";
 
 export const DEFAULT_PARAMS: VillageParams = {

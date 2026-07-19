@@ -109,13 +109,26 @@ export function distanceToBoundary(poly: Polygon, p: Vec2): number {
     return best;
 }
 
-function pointSegmentDistance(p: Vec2, a: Vec2, b: Vec2): number {
+/** Shortest distance from a point to a single segment [a, b]. */
+export function pointSegmentDistance(p: Vec2, a: Vec2, b: Vec2): number {
     const abx = b.x - a.x;
     const aby = b.y - a.y;
     const lenSq = abx * abx + aby * aby;
     let t = lenSq > 0 ? ((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq : 0;
     t = Math.max(0, Math.min(1, t));
     return Math.hypot(p.x - (a.x + t * abx), p.y - (a.y + t * aby));
+}
+
+/** Drop consecutive near-duplicate vertices and any closing wrap duplicate, so a
+ *  ring has no zero-length edges (e.g. after clamping traced points to bounds). */
+export function dedupeRing(ring: readonly Vec2[], eps = 1e-6): Polygon {
+    const out: Vec2[] = [];
+    for (const p of ring) {
+        const last = out[out.length - 1];
+        if (!last || Math.hypot(last.x - p.x, last.y - p.y) > eps) out.push(p);
+    }
+    while (out.length >= 2 && Math.hypot(out[0].x - out[out.length - 1].x, out[0].y - out[out.length - 1].y) <= eps) out.pop();
+    return out;
 }
 
 /** True if no two non-adjacent edges cross (a simple, non-self-intersecting ring). */
@@ -140,7 +153,8 @@ function orient(a: Vec2, b: Vec2, c: Vec2): number {
     return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 }
 
-function segmentsIntersect(p1: Vec2, p2: Vec2, p3: Vec2, p4: Vec2): boolean {
+/** True if the open segments [p1,p2] and [p3,p4] cross at an interior point. */
+export function segmentsIntersect(p1: Vec2, p2: Vec2, p3: Vec2, p4: Vec2): boolean {
     const d1 = orient(p3, p4, p1);
     const d2 = orient(p3, p4, p2);
     const d3 = orient(p1, p2, p3);

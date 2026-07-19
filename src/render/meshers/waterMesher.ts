@@ -3,6 +3,7 @@
 // island's surrounding sea — have holes). PURE.
 
 import type { Vec2, WaterBody } from "../../gen/types";
+import { segmentsIntersect } from "../../gen/geometry/polygon";
 import type { GeometryData } from "../geometryData";
 
 export function waterGeometry(water: readonly WaterBody[], y = 0): GeometryData {
@@ -105,17 +106,9 @@ function visible(m: Vec2, o: Vec2, ring: readonly Vec2[], oIdx: number): boolean
     for (let i = 0; i < ring.length; i++) {
         const j = (i + 1) % ring.length;
         if (i === oIdx || j === oIdx) continue;
-        if (segmentsCross(m, o, ring[i], ring[j])) return false;
+        if (segmentsIntersect(m, o, ring[i], ring[j])) return false;
     }
     return true;
-}
-
-function segmentsCross(a: Vec2, b: Vec2, c: Vec2, d: Vec2): boolean {
-    const d1 = cross(c, d, a);
-    const d2 = cross(c, d, b);
-    const d3 = cross(a, b, c);
-    const d4 = cross(a, b, d);
-    return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
 }
 
 /** Ear-clipping triangulation of a simple CCW polygon; returns local index triples. */

@@ -1,9 +1,8 @@
 // Terrain-first local landscape generation. PURE.
 
-import type { Bounds, ResolvedTerrainProfile, TerrainModel, TerrainProfile, TerrainSample, Vec2, WaterBody } from "../types";
+import type { Bounds, ResolvedTerrainProfile, TerrainModel, TerrainProfile, TerrainSample, Vec2 } from "../types";
 import type { Rng } from "../rng";
-import { contains } from "../geometry/polygon";
-import { distanceToWater } from "./water";
+import { clamp } from "../geometry/scalar";
 
 export interface TerrainParams {
     radius: number;
@@ -41,18 +40,6 @@ export function terrainSampleAt(terrain: TerrainModel, point: Vec2): TerrainSamp
     return terrain.samples[ty * terrain.resolution + tx];
 }
 
-/** Mark terrain covered by resolved hydrology as non-land and non-buildable. */
-export function applyHydrology(terrain: TerrainModel, hydrology: WaterBody[]): TerrainModel {
-    const samples = terrain.samples.map((sample, index) => {
-        const point = gridPoint(terrain.bounds, terrain.resolution, index % terrain.resolution, Math.floor(index / terrain.resolution));
-        const submerged = hydrology.some((body) => body.kind === "river"
-            ? distanceToWater(point, body) <= 0
-            : contains(body.polygon, point) && !(body.holes ?? []).some((hole) => contains(hole, point)));
-        return submerged ? { ...sample, land: false, buildable: false } : sample;
-    });
-    return { ...terrain, samples, hydrology };
-}
-
 function terrainHeight(profile: ResolvedTerrainProfile, p: Vec2, radius: number, a: number, b: number): number {
     const x = p.x / radius;
     const y = p.y / radius;
@@ -75,10 +62,7 @@ function estimateSlope(profile: ResolvedTerrainProfile, p: Vec2, radius: number,
     return Math.hypot(dx, dy) / (step * 2);
 }
 
-function gridPoint(bounds: Bounds, resolution: number, x: number, y: number): Vec2 {
+/** Map integer grid coordinates (which may fall one step outside) to world space. */
+export function gridPoint(bounds: Bounds, resolution: number, x: number, y: number): Vec2 {
     return { x: bounds.minX + (bounds.maxX - bounds.minX) * x / (resolution - 1), y: bounds.minY + (bounds.maxY - bounds.minY) * y / (resolution - 1) };
-}
-
-function clamp(value: number, min: number, max: number): number {
-    return Math.max(min, Math.min(max, value));
 }

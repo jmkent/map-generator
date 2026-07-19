@@ -1,6 +1,7 @@
 // Regular-grid terrain mesher. PURE.
 
 import type { TerrainModel } from "../../gen/types";
+import { gridPoint } from "../../gen/stages/terrain";
 import type { GeometryData } from "../geometryData";
 
 /** Convert analytical terrain samples to a visibly raised local landscape. */
@@ -13,9 +14,11 @@ export function terrainGeometry(terrain: TerrainModel, verticalScale = 0.002): G
         for (let x = 0; x < resolution; x++) {
             const index = y * resolution + x;
             const offset = index * 3;
-            positions[offset] = bounds.minX + (bounds.maxX - bounds.minX) * x / (resolution - 1);
+            // (grid x,y) -> world (x, z); height lifts the y axis.
+            const world = gridPoint(bounds, resolution, x, y);
+            positions[offset] = world.x;
             positions[offset + 1] = samples[index].height * verticalScale;
-            positions[offset + 2] = bounds.minY + (bounds.maxY - bounds.minY) * y / (resolution - 1);
+            positions[offset + 2] = world.y;
             normals[offset + 1] = 1;
         }
     }

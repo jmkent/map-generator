@@ -8,6 +8,7 @@
 // enclosing an above island is CW.
 
 import type { Vec2 } from "../types";
+import { dedupeRing } from "./polygon";
 
 export interface ContourGrid {
     /** Row-major scalar values, length cols*rows. */
@@ -118,18 +119,7 @@ function stitch(segments: Array<{ from: Vec2; to: Vec2 }>): Vec2[][] {
             const candidates = byStart.get(key(current.to));
             current = candidates?.find((s) => !s.used);
         }
-        if (loop.length >= 3) loops.push(dedupe(loop));
+        if (loop.length >= 3) loops.push(dedupeRing(loop));
     }
     return loops;
-}
-
-/** Drop consecutive duplicate/near-duplicate points, including the wrap. */
-function dedupe(loop: Vec2[]): Vec2[] {
-    const out: Vec2[] = [];
-    for (const p of loop) {
-        const last = out[out.length - 1];
-        if (!last || Math.hypot(last.x - p.x, last.y - p.y) > 1e-6) out.push(p);
-    }
-    while (out.length >= 2 && Math.hypot(out[0].x - out[out.length - 1].x, out[0].y - out[out.length - 1].y) <= 1e-6) out.pop();
-    return out;
 }

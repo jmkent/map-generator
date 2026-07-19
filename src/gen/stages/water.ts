@@ -1,11 +1,18 @@
-// Structural river generation and road-crossing integration. PURE.
+// Terrain-driven hydrology. PURE.
+//
+// Resolves a settlement's water from the height field: a variable-width river
+// (before roads, so they can ford it), standing ponds/lakes, and a coastline
+// traced from the sub-sea-level contour. Also integrates road-river crossings,
+// answers shoreline-distance queries, and marks submerged terrain non-buildable.
 
-import type { Bounds, Polygon, River, RoadEdge, RoadNetwork, RoadNode, StandingWater, TerrainModel, Vec2, VillageParams } from "../types";
+import type { Bounds, Polygon, River, RoadEdge, RoadNetwork, RoadNode, StandingWater, TerrainModel, Vec2, VillageParams, WaterBody } from "../types";
 import type { Rng } from "../rng";
 import { catmullRom } from "../geometry/catmullRom";
-import { area, centroid, contains, ensureCCW, signedArea } from "../geometry/polygon";
+import { area, centroid, contains, dedupeRing, ensureCCW, pointSegmentDistance, signedArea } from "../geometry/polygon";
 import { isoContours, type ContourGrid } from "../geometry/contour";
+import { clamp } from "../geometry/scalar";
 import { add, lerp, normalize, perp, scale, sub } from "../geometry/vec2";
+import { gridPoint, terrainSampleAt } from "./terrain";
 
 export interface RiverParams {
     boundary: Polygon;
@@ -87,33 +94,19 @@ export function terrainSea(terrain: TerrainModel): { polygon: Polygon; holes: Po
         values: terrain.samples.map((sample) => sample.height),
         cols: resolution,
         rows: resolution,
-        toWorld: (col, row) => ({
-            x: bounds.minX + (bounds.maxX - bounds.minX) * col / (resolution - 1),
-            y: bounds.minY + (bounds.maxY - bounds.minY) * row / (resolution - 1),
-        }),
+        toWorld: (col, row) => gridPoint(bounds, resolution, col, row),
     };
     const loops = isoContours(grid, terrain.seaLevel);
     const mapArea = (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY);
     const seaLoops = loops.filter((loop) => signedArea(loop) > 0).sort((a, b) => area(b) - area(a));
     const sea = seaLoops[0];
     if (!sea || area(sea) < mapArea * 0.02) return null;
-    const clamp = (loop: Polygon): Polygon => dedupePolygon(loop.map((point) => clampToBounds(point, bounds)));
+    const clampLoop = (loop: Polygon): Polygon => dedupeRing(loop.map((point) => clampToBounds(point, bounds)));
     // Land islands (CW loops) enclosed by the sea become holes cut from it.
     const holes = loops
         .filter((loop) => signedArea(loop) < 0 && area(loop) > mapArea * 0.01 && contains(sea, centroid(loop)))
-        .map(clamp);
-    return { polygon: clamp(sea), holes };
-}
-
-/** Drop consecutive duplicate vertices (clamping to bounds can coincide points). */
-function dedupePolygon(poly: Polygon): Polygon {
-    const out: Polygon = [];
-    for (const p of poly) {
-        const last = out[out.length - 1];
-        if (!last || Math.hypot(last.x - p.x, last.y - p.y) > 1e-6) out.push(p);
-    }
-    while (out.length >= 2 && Math.hypot(out[0].x - out[out.length - 1].x, out[0].y - out[out.length - 1].y) <= 1e-6) out.pop();
-    return out;
+        .map(clampLoop);
+    return { polygon: clampLoop(sea), holes };
 }
 
 function terrainRiverChance(profile: TerrainModel["profile"], configured: number): number {
@@ -136,7 +129,7 @@ export function generateRiver(rng: Rng, params: RiverParams): River {
     const span = horizontal ? mapBounds.maxX - mapBounds.minX : mapBounds.maxY - mapBounds.minY;
     const crossMin = horizontal ? mapBounds.minY : mapBounds.minX;
     const crossMax = horizontal ? mapBounds.maxY : mapBounds.maxX;
-    const center = centroidLike(boundary);
+    const center = vertexAverage(boundary);
     const centerCross = horizontal ? center.y : center.x;
     const endpointOffset = Math.min(radius * 0.16, (crossMax - crossMin) * 0.14);
     const startCross = clamp(centerCross + rng.float(-endpointOffset, endpointOffset), crossMin, crossMax);
@@ -174,12 +167,12 @@ export function generateStandingWater(rng: Rng, params: StandingWaterParams): St
         const polygon = organicBody(rng, center, size, kind === "pond" ? 10 : 14);
         if (!polygon.every((point) => contains(params.boundary, point))) continue;
         if (river && polygon.some((point) => distanceToRiver(point, river) < river.width / 2 + size * 0.3)) continue;
-        if (params.roads.edges.some((edge) => distancePointToSegment(center, roadPositions.get(edge.a)!, roadPositions.get(edge.b)!) < size + edge.width)) continue;
+        if (params.roads.edges.some((edge) => pointSegmentDistance(center, roadPositions.get(edge.a)!, roadPositions.get(edge.b)!) < size + edge.width)) continue;
         return { kind, polygon };
     }
     // A small centered fallback keeps the model populated without violating the
     // hard land boundary when an unusually dense road graph leaves few slots.
-    return { kind, polygon: organicBody(rng, centroidLike(params.boundary), size * 0.55, 10) };
+    return { kind, polygon: organicBody(rng, vertexAverage(params.boundary), size * 0.55, 10) };
 }
 
 /** Split road edges at river intersections and flag the inserted bridge nodes. */
@@ -237,20 +230,22 @@ export function distanceToWater(point: Vec2, water: River | StandingWater): numb
     if (water.kind === "river") return Math.max(0, distanceToRiver(point, water) - water.width / 2);
     let best = Infinity;
     for (const ring of [water.polygon, ...(water.holes ?? [])]) {
-        for (let i = 0; i < ring.length; i++) best = Math.min(best, distancePointToSegment(point, ring[i], ring[(i + 1) % ring.length]));
+        for (let i = 0; i < ring.length; i++) best = Math.min(best, pointSegmentDistance(point, ring[i], ring[(i + 1) % ring.length]));
     }
     return best;
 }
 
-function pointSegmentDistance(point: Vec2, a: Vec2, b: Vec2): number {
-    const ab = sub(b, a);
-    const lengthSq = ab.x * ab.x + ab.y * ab.y;
-    const t = lengthSq === 0 ? 0 : clamp(((point.x - a.x) * ab.x + (point.y - a.y) * ab.y) / lengthSq, 0, 1);
-    return Math.hypot(point.x - (a.x + ab.x * t), point.y - (a.y + ab.y * t));
-}
-
-function distancePointToSegment(point: Vec2, a: Vec2, b: Vec2): number {
-    return pointSegmentDistance(point, a, b);
+/** Mark terrain covered by resolved hydrology as non-land and non-buildable. A point
+ *  is submerged when it lies under a channel or inside a body but outside its holes. */
+export function applyHydrology(terrain: TerrainModel, hydrology: WaterBody[]): TerrainModel {
+    const samples = terrain.samples.map((sample, index) => {
+        const point = gridPoint(terrain.bounds, terrain.resolution, index % terrain.resolution, Math.floor(index / terrain.resolution));
+        const submerged = hydrology.some((body) => body.kind === "river"
+            ? distanceToWater(point, body) <= 0
+            : contains(body.polygon, point) && !(body.holes ?? []).some((hole) => contains(hole, point)));
+        return submerged ? { ...sample, land: false, buildable: false } : sample;
+    });
+    return { ...terrain, samples, hydrology };
 }
 
 function organicBody(rng: Rng, center: Vec2, radius: number, points: number): Polygon {
@@ -264,7 +259,7 @@ function organicBody(rng: Rng, center: Vec2, radius: number, points: number): Po
 }
 
 function randomPointInBoundary(rng: Rng, boundary: Polygon, radius: number): Vec2 {
-    const center = centroidLike(boundary);
+    const center = vertexAverage(boundary);
     for (let attempt = 0; attempt < 24; attempt++) {
         const point = { x: center.x + rng.float(-radius * 0.6, radius * 0.6), y: center.y + rng.float(-radius * 0.6, radius * 0.6) };
         if (contains(boundary, point)) return point;
@@ -272,7 +267,7 @@ function randomPointInBoundary(rng: Rng, boundary: Polygon, radius: number): Vec
     return center;
 }
 
-function centroidLike(poly: Polygon): Vec2 {
+function vertexAverage(poly: Polygon): Vec2 {
     return poly.reduce((sum, point) => ({ x: sum.x + point.x / poly.length, y: sum.y + point.y / poly.length }), { x: 0, y: 0 });
 }
 
@@ -317,8 +312,8 @@ function riverBanks(rng: Rng, path: Vec2[], width: number, bounds: Bounds, terra
     const rightBank: Vec2[] = [];
     // Orient the channel so the mouth is the lower (downstream) end. Rivers widen
     // markedly from source to mouth; the local noise then wanders that envelope.
-    const startHigh = terrain ? sampleHeight(terrain, path[0]) : 0;
-    const endHigh = terrain ? sampleHeight(terrain, path[path.length - 1]) : 0;
+    const startHigh = terrain ? terrainSampleAt(terrain, path[0]).height : 0;
+    const endHigh = terrain ? terrainSampleAt(terrain, path[path.length - 1]).height : 0;
     const mouthAtEnd = endHigh <= startHigh;
     let previousNoise = rng.float(-0.16, 0.16);
     for (let i = 0; i < path.length; i++) {
@@ -336,14 +331,6 @@ function riverBanks(rng: Rng, path: Vec2[], width: number, bounds: Bounds, terra
         rightBank.push(clampToBounds(sub(path[i], scale(normal, half)), bounds));
     }
     return { leftBank, rightBank };
-}
-
-/** Nearest height-field sample to a world point (avoids a terrain->water import cycle). */
-function sampleHeight(terrain: TerrainModel, point: Vec2): number {
-    const { bounds, resolution } = terrain;
-    const tx = clamp(Math.round((point.x - bounds.minX) / (bounds.maxX - bounds.minX) * (resolution - 1)), 0, resolution - 1);
-    const ty = clamp(Math.round((point.y - bounds.minY) / (bounds.maxY - bounds.minY) * (resolution - 1)), 0, resolution - 1);
-    return terrain.samples[ty * resolution + tx].height;
 }
 
 function clampToBounds(point: Vec2, bounds: Bounds): Vec2 {
@@ -368,8 +355,4 @@ function segmentIntersection(a: Vec2, b: Vec2, c: Vec2, d: Vec2): { t: number; p
     const t = (qx * s.y - qy * s.x) / denom;
     const u = (qx * r.y - qy * r.x) / denom;
     return t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9 ? { t, point: lerp(a, b, t) } : null;
-}
-
-function clamp(value: number, min: number, max: number): number {
-    return Math.max(min, Math.min(max, value));
 }
