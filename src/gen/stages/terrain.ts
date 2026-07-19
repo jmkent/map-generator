@@ -47,7 +47,7 @@ export function applyHydrology(terrain: TerrainModel, hydrology: WaterBody[]): T
         const point = gridPoint(terrain.bounds, terrain.resolution, index % terrain.resolution, Math.floor(index / terrain.resolution));
         const submerged = hydrology.some((body) => body.kind === "river"
             ? distanceToWater(point, body) <= 0
-            : contains(body.polygon, point));
+            : contains(body.polygon, point) && !(body.holes ?? []).some((hole) => contains(hole, point)));
         return submerged ? { ...sample, land: false, buildable: false } : sample;
     });
     return { ...terrain, samples, hydrology };

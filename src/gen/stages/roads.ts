@@ -132,6 +132,26 @@ function routeTraversable(context: RoadGenerationContext, points: readonly Vec2[
     return untraversableCount(context, points) === 0;
 }
 
+/** Trim a must-have spine to the contiguous traversable run containing `keep`, so
+ *  it stays on land and only enters the channel at its one ford — removing a
+ *  straight trunk's incidental re-crossings of a meander (M12d). */
+function clipToTraversable(context: RoadGenerationContext, points: Vec2[], keep: Vec2): Vec2[] {
+    if (untraversableCount(context, points) === 0) return points;
+    let ki = 0;
+    let kd = Infinity;
+    for (let i = 0; i < points.length; i++) {
+        const d = dist(points[i], keep);
+        if (d < kd) { kd = d; ki = i; }
+    }
+    if (!traversablePoint(context, points[ki])) return points; // nothing sound to keep around
+    let lo = ki;
+    let hi = ki;
+    while (lo > 0 && traversablePoint(context, points[lo - 1])) lo--;
+    while (hi < points.length - 1 && traversablePoint(context, points[hi + 1])) hi++;
+    const run = points.slice(lo, hi + 1);
+    return run.length >= 2 ? run : points;
+}
+
 /** A must-have through-road that prefers the terrain grain: try the intended axis,
  *  then small rotations, and keep the route that crosses the least bad ground. The
  *  route is never dropped, so the network always has a connected spine. */
@@ -217,7 +237,7 @@ export function generateRoads(rng: Rng, params: RoadParams): RoadNetwork {
         trunkOrigin = fords[0].point;
         trunkAxis = fords[0].axis;
     }
-    const trunk = bestThroughRoad(context, trunkOrigin, trunkAxis);
+    const trunk = clipToTraversable(context, bestThroughRoad(context, trunkOrigin, trunkAxis), trunkOrigin);
     primaryRoutes.push({ kind: "primary", points: trunk });
     pushPolyline(trunk, "primary", params.primaryWidth);
 
@@ -282,6 +302,7 @@ export function generateRoads(rng: Rng, params: RoadParams): RoadNetwork {
 function generateProfileRoads(rng: Rng, params: RoadParams): RoadNetwork {
     const safeArea = inset(params.boundary, params.inset);
     const spacing = Math.max(params.frontage * 2.5, params.radius * 0.18);
+    const fords = params.river ? chooseFords(params.river, safeArea, params.terrain, params.radius) : [];
     const context: RoadGenerationContext = {
         rng,
         safeArea,
@@ -292,79 +313,73 @@ function generateProfileRoads(rng: Rng, params: RoadParams): RoadNetwork {
         samples: params.samples,
         terrain: params.terrain,
         river: params.river,
-        // Profile forms do not yet gate on terrain or the river (M12d); these keep
-        // the context well-formed without changing their routing.
-        fords: [],
-        fordRadius: 0,
+        fords: fords.map((ford) => ford.point),
+        fordRadius: params.river ? params.river.width * 1.1 : 0,
     };
     const segments: SegmentInput[] = [];
-    const addRoute = (points: Vec2[], kind: RoadClass, width: number): void => {
-        if (!points.every((point) => allowedPoint(params, safeArea, point))) return;
+    const pushPoints = (points: Vec2[], kind: RoadClass, width: number): void => {
         for (let i = 1; i < points.length; i++) {
             if (dist(points[i - 1], points[i]) >= MIN_EDGE_LEN) segments.push({ a: points[i - 1], b: points[i], kind, width });
         }
     };
+    // The form's principal route is must-have, but clipped to stay on land and out
+    // of the sea (a no-op on flat terrain). Returns the route actually laid.
+    const addSpine = (points: Vec2[], kind: RoadClass, width: number): Vec2[] => {
+        const clipped = clipToTraversable(context, points, points[Math.floor(points.length / 2)]);
+        pushPoints(clipped, kind, width);
+        return clipped;
+    };
+    // A supporting route only lands if it stays inside, clears civic space, and is
+    // traversable — so profile forms no longer run tracks or flanks into the water.
+    const layable = (points: Vec2[]): boolean => points.every((point) => allowedPoint(params, safeArea, point)) && routeTraversable(context, points);
+    const addRoute = (points: Vec2[], kind: RoadClass, width: number): boolean => {
+        if (!layable(points)) return false;
+        pushPoints(points, kind, width);
+        return true;
+    };
+    const connectorPoints = (a: Vec2, b: Vec2): Vec2[] => dedupe(catmullRom([a, scale(add(a, b), 0.5), b], params.samples));
+
     const axis = params.layout.axis;
     const normal = perp(axis);
     const anchor = params.layout.anchor;
     const profile = params.layout.profile;
 
-    if (profile === "estate") {
-        // An estate has one legible access route rather than an internal street
-        // network. Marking it primary lets M6 continue that route into the
-        // surrounding countryside.
-        addRoute(throughRoad(context, anchor, axis), "primary", params.primaryWidth);
-        return planarize(segments);
-    }
-
-    if (profile === "reihendorf" || profile === "tenement") {
-        addRoute(throughRoad(context, anchor, axis), "primary", params.primaryWidth);
+    if (profile === "estate" || profile === "reihendorf" || profile === "tenement") {
+        // One legible access route (estate) or frontage spine (reihendorf/tenement).
+        addSpine(throughRoad(context, anchor, axis), "primary", params.primaryWidth);
         return planarize(segments);
     }
 
     if (profile === "weiler") {
-        const trunk = throughRoad(context, anchor, axis);
-        addRoute(trunk, "primary", params.primaryWidth);
-        const offset = scale(normal, params.radius * 0.22);
-        const side = throughRoad(context, add(anchor, offset), axis);
-        addRoute(side, "track", params.laneWidth * 0.7);
-        addConnector(params, safeArea, segments, pointAtFraction(trunk, 0.72), pointAtFraction(side, 0.72), "track", params.laneWidth * 0.7);
+        const trunk = addSpine(throughRoad(context, anchor, axis), "primary", params.primaryWidth);
+        const side = throughRoad(context, add(anchor, scale(normal, params.radius * 0.22)), axis);
+        const link = connectorPoints(pointAtFraction(trunk, 0.72), pointAtFraction(side, 0.72));
+        // The side track and its link go in together, so neither dangles.
+        if (layable(side) && layable(link)) {
+            pushPoints(side, "track", params.laneWidth * 0.7);
+            pushPoints(link, "track", params.laneWidth * 0.7);
+        }
         return planarize(segments);
     }
 
     const green = params.layout.civicSpaces[0];
     const greenRadius = green ? Math.max(...green.polygon.map((point) => dist(point, anchor))) : params.radius * 0.14;
     const flankOffset = greenRadius + params.frontage * 0.8;
-    const left = throughRoad(context, add(anchor, scale(normal, flankOffset)), axis);
+    const left = addSpine(throughRoad(context, add(anchor, scale(normal, flankOffset)), axis), "primary", params.primaryWidth);
     const right = throughRoad(context, add(anchor, scale(normal, -flankOffset)), axis);
-    // Rundling keeps one principal entrance beside narrower frontage paths.
-    // The closing paths remain tracks and therefore add no frontage.
-    addRoute(left, "primary", params.primaryWidth);
-    addRoute(right, profile === "rundling" ? "lane" : "primary", profile === "rundling" ? params.laneWidth : params.primaryWidth);
-    const connectorKind: RoadClass = profile === "rundling" ? "track" : "secondary";
-    const connectorWidth = profile === "rundling" ? params.laneWidth * 0.7 : params.secondaryWidth;
-    // End connectors maintain movement without cutting through the reserved centre.
-    addConnector(params, safeArea, segments, pointAtFraction(left, 0.16), pointAtFraction(right, 0.16), connectorKind, connectorWidth);
-    if (profile === "angerdorf") {
-        addConnector(params, safeArea, segments, pointAtFraction(left, 0.84), pointAtFraction(right, 0.84), connectorKind, connectorWidth);
+    // Rundling keeps one principal entrance beside narrower frontage paths; the
+    // closing paths remain tracks and add no frontage. The far flank and its end
+    // connectors go in only when the flank itself is viable, so nothing dangles.
+    const rightLaid = addRoute(right, profile === "rundling" ? "lane" : "primary", profile === "rundling" ? params.laneWidth : params.primaryWidth);
+    if (rightLaid) {
+        const connectorKind: RoadClass = profile === "rundling" ? "track" : "secondary";
+        const connectorWidth = profile === "rundling" ? params.laneWidth * 0.7 : params.secondaryWidth;
+        addRoute(connectorPoints(pointAtFraction(left, 0.16), pointAtFraction(right, 0.16)), connectorKind, connectorWidth);
+        if (profile === "angerdorf") {
+            addRoute(connectorPoints(pointAtFraction(left, 0.84), pointAtFraction(right, 0.84)), connectorKind, connectorWidth);
+        }
     }
     return planarize(segments);
-}
-
-function addConnector(
-    params: RoadParams,
-    safeArea: Polygon,
-    segments: SegmentInput[],
-    a: Vec2,
-    b: Vec2,
-    kind: RoadClass,
-    width: number,
-): void {
-    const points = dedupe(catmullRom([a, scale(add(a, b), 0.5), b], params.samples));
-    if (!points.every((point) => allowedPoint(params, safeArea, point))) return;
-    for (let i = 1; i < points.length; i++) {
-        if (dist(points[i - 1], points[i]) >= MIN_EDGE_LEN) segments.push({ a: points[i - 1], b: points[i], kind, width });
-    }
 }
 
 function allowedPoint(params: RoadParams, safeArea: Polygon, point: Vec2): boolean {

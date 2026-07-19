@@ -587,7 +587,7 @@ shape derived from the buildable component's extent; terrain–morphology compat
 profile a site cannot support, biasing profile selection by available land) is not yet resolved.
 Both are picked up as siting/morphology refinements in M13.
 
-### [ ] M12 — Terrain-constrained roads & crossings
+### [x] M12 — Terrain-constrained roads & crossings
 Roads currently ignore relief. This milestone makes circulation follow the terrain: routes prefer
 traversable slope and natural corridors, and river crossings are chosen at good, stable points
 before planarization. It also lands the deferred half of M10 — deriving channel/shoreline geometry
@@ -639,11 +639,18 @@ and cross water at deliberate points.
   parcel/water overlap uses a general (non-convex) test. Deferred: the ring case (an island's
   surrounding sea) needs a polygon-with-hole and still uses the heuristic strip; standing `lake`
   bodies are not yet traced; rivers still follow a Catmull meander rather than steepest descent.
-- **[ ] M12d — profile-form & approach corridors, island seas.** Extend terrain-constrained routing
-  (and ford crossings) to the non-`haufendorf` profiles; route approaches and primaries through
-  terrain gaps (valley mouths, shore edges) rather than only rejecting sea crossings; suppress the
-  trunk's incidental re-crossings of a meander so *every* crossing is a chosen ford; and represent
-  island/ring seas (polygon-with-hole) so they too are terrain-traced.
+- **[x] M12d — profile-form & approach corridors, island seas.** Terrain-constrained routing and
+  fords now apply to every settlement profile: a shared `clipToTraversable` trims each must-have
+  spine to its on-land run (which also removes a straight trunk's incidental re-crossings of a
+  meander, so *every* river crossing is the one chosen ford), and profile forms drop supporting
+  routes that would run into water or up a steep face. Approaches keep to traversable corridors —
+  rejected if they cross the sea, climb steeper than `MAX_APPROACH_SLOPE`, or cross the open river —
+  so a coastal or island village keeps its entrances on land. `StandingWater` gained optional
+  `holes`, so an island's ring-shaped sea is traced as an outer polygon with the island as a hole
+  (`terrainSea`); `applyHydrology`, parcel exclusion, `distanceToWater`, the SVG renderer
+  (even-odd path), and the water mesher (hole-bridged ear clipping) all honor holes. Deferred to
+  M13+: rivers still follow a Catmull meander rather than steepest descent; approaches reject bad
+  corridors rather than being actively routed toward the best gap.
 
 **Test plan:**
 - **Invariants:** no accepted road segment exceeds the traversable-slope threshold beyond tolerance
@@ -652,7 +659,10 @@ and cross water at deliberate points.
   bridge sits at the gentlest bank the river offers inside the settlement *(M12b)*; a traced coast
   agrees with the terrain's own land/sea mask over >90% of cells, reaches the map edge, and is
   detailed (not a ~15-point strip); a river's width varies >2.5× and its wide end sits on lower
-  ground *(M12c)*; graph stays connected and planar. Marching-squares contour extraction is unit
+  ground *(M12c)*; every settlement profile keeps its roads on land over coast terrain and stays
+  connected, a river village's bridges cluster in one ford, approaches never sample sea/steep/open
+  channel, and an island's sea is traced as a polygon whose holes preserve the island's buildable
+  land *(M12d)*; graph stays connected and planar. Marching-squares contour extraction is unit
   tested (orientation, interpolation, submerged/dry fields).
 - **Determinism + stream isolation; golden SVG.** The road-topology and morphology invariants pin
   `plain` terrain so they exercise the algorithm independent of relief (a coast can legitimately

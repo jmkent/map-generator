@@ -143,6 +143,37 @@ describe("terrain-derived hydrology (M12c)", () => {
         });
     }
 
+    it("traces an island's ring sea as a coast with a land hole (M12d)", () => {
+        const model = generateVillage("m12d-island", { settlementProfile: "haufendorf", terrainProfile: "island" });
+        const coast = model.water.find((body) => body.kind === "coast");
+        expect(coast, "expected a coast body").toBeDefined();
+        if (!coast || coast.kind !== "coast") return;
+
+        // The surrounding sea is a ring: an outer polygon with the island as a hole.
+        expect(coast.holes && coast.holes.length).toBeGreaterThanOrEqual(1);
+
+        // The island's land survives (not flooded by the outer polygon) and stays
+        // buildable, and the settlement actually occupies it.
+        expect(model.terrain.samples.some((sample) => sample.land && sample.buildable)).toBe(true);
+        expect(model.buildings.length).toBeGreaterThan(0);
+
+        // Sea/land mask agrees with the polygon-minus-holes over the whole grid.
+        const terrain = model.terrain;
+        const { minX, minY, maxX, maxY } = terrain.bounds;
+        const inSea = (p: Vec2): boolean => contains(coast.polygon, p) && !(coast.holes ?? []).some((hole) => contains(hole, p));
+        let agree = 0;
+        for (let row = 0; row < terrain.resolution; row++) {
+            for (let col = 0; col < terrain.resolution; col++) {
+                const point = {
+                    x: minX + (maxX - minX) * col / (terrain.resolution - 1),
+                    y: minY + (maxY - minY) * row / (terrain.resolution - 1),
+                };
+                if (inSea(point) === !terrain.samples[row * terrain.resolution + col].land) agree++;
+            }
+        }
+        expect(agree / terrain.resolution ** 2).toBeGreaterThan(0.9);
+    });
+
     it("widens a river from source to mouth", () => {
         const model = generateVillage("valley-flow", { settlementProfile: "haufendorf", terrainProfile: "river-valley", riverChance: 1 });
         const river = model.water.find((body) => body.kind === "river");

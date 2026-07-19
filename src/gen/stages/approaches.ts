@@ -4,11 +4,12 @@
 // selected primary endpoints along their outgoing tangent to the countryside
 // edge, and re-planarizes the combined segment set.
 
-import type { Bounds, Polygon, RoadNetwork, TerrainModel, Vec2 } from "../types";
+import type { Bounds, Polygon, River, RoadNetwork, TerrainModel, Vec2 } from "../types";
 import type { Rng } from "../rng";
 import { intersectRayPolygon } from "../geometry/polygon";
 import { planarize, type SegmentInput } from "../geometry/graph";
 import { terrainSampleAt } from "./terrain";
+import { distanceToRiver } from "./water";
 import { normalize, sub } from "../geometry/vec2";
 
 export interface ApproachParams {
@@ -18,8 +19,10 @@ export interface ApproachParams {
     minCount: number;
     maxCount: number;
     width: number;
-    /** Height field; approaches never run out into the sea. */
+    /** Height field; approaches never run out into the sea or up a steep face. */
     terrain?: TerrainModel;
+    /** River; approaches don't cross open channel (the trunk's ford is the crossing). */
+    river?: River;
 }
 
 interface Candidate {
@@ -72,8 +75,11 @@ function primaryEndpointCandidates(params: ApproachParams): Candidate[] {
         const boundaryHit = intersectRayPolygon(params.boundary, endpoint, direction);
         const outer = rayToMapBounds(endpoint, direction, params.mapBounds);
         if (!boundaryHit || !outer || boundaryHit.distance >= distanceAlongRay(endpoint, outer, direction)) continue;
-        // Don't run an entrance out into the water; keep approaches on dry land.
-        if (params.terrain && crossesSea(params.terrain, endpoint, outer)) continue;
+        // Keep entrances in traversable country: never out into the water, up a
+        // steep face, or across the open river — so they follow valley mouths and
+        // shore gaps, leaving the river's ford the one deliberate crossing.
+        if (params.terrain && crossesImpassable(params.terrain, endpoint, outer)) continue;
+        if (params.river && crossesChannel(params.river, endpoint, outer)) continue;
         candidates.push({ endpoint, direction, outer, angle: Math.atan2(direction.y, direction.x) });
     }
     return candidates;
@@ -99,12 +105,27 @@ function spreadCandidates(rng: Rng, candidates: Candidate[], count: number): Can
     return selected;
 }
 
-/** Sample the segment a->b; true if any point falls on non-land terrain (the sea). */
-function crossesSea(terrain: TerrainModel, a: Vec2, b: Vec2): boolean {
+// An approach can climb a little more than a village street before it reads as
+// scaling a cliff rather than following a gap.
+const MAX_APPROACH_SLOPE = 0.42;
+
+/** Sample the segment a->b; true if any point is sea or too steep to traverse. */
+function crossesImpassable(terrain: TerrainModel, a: Vec2, b: Vec2): boolean {
     const steps = 24;
     for (let i = 0; i <= steps; i++) {
         const t = i / steps;
-        if (!terrainSampleAt(terrain, { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }).land) return true;
+        const sample = terrainSampleAt(terrain, { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+        if (!sample.land || sample.slope > MAX_APPROACH_SLOPE) return true;
+    }
+    return false;
+}
+
+/** Sample the segment a->b; true if any point falls in the open river channel. */
+function crossesChannel(river: River, a: Vec2, b: Vec2): boolean {
+    const steps = 24;
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        if (distanceToRiver({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, river) <= river.width * 0.6) return true;
     }
     return false;
 }

@@ -1,6 +1,6 @@
 # Architecture
 
-This document explains how the village generator currently works through M11.
+This document explains how the village generator currently works through M12.
 It starts with the problem each phase solves, then names the techniques used in
 the code. Read `PLAN.md` for the roadmap; use this document to understand the
 implemented system and the rules that shape its output.
@@ -375,24 +375,29 @@ grid at sea level and returns the below-sea region as a single polygon that foll
 the true shoreline, so coves cut inward and peninsulas jut outward exactly as the
 landform dictates. Because that shoreline can be concave, downstream consumers use
 the general (non-convex) overlap test for parcel exclusion and the water mesher
-ear-clips the polygon. An island's *surrounding* sea is a ring (a polygon with a
-hole) that a single simple polygon cannot express, so those fall back to the
-heuristic map-edge reserve for now (M12d). Approaches are kept out of the water:
-an entrance whose path would cross the sea is not generated, so a coastal village
-may have fewer than the target number of entrances.
+ear-clips the polygon. An island's *surrounding* sea is a ring, expressed as an
+outer polygon with the island as a **hole** (`StandingWater.holes`, M12d): the SVG
+renderer draws it with an even-odd path, the water mesher bridges the hole before
+ear-clipping, and `applyHydrology`/parcel exclusion treat a point as sea only when
+it is inside the outer polygon and outside every hole — so the island's land, and
+the village on it, survive. Approaches are kept out of the water: an entrance whose
+path would cross the sea (or, M12d, climb too steeply or cross the open river) is
+not generated, so a coastal or island village may have fewer than the target number
+of entrances.
 
 A river that reaches the settlement is treated as an **obstacle with one chosen
-crossing** (M12b). The clustered road generator forbids roads from entering the
-open channel except near a *ford* — `chooseFords` scores centerline points inside
-the buildable area for gentle banks, a narrow channel, and centrality, and keeps
-the best one. The trunk is anchored to cross there, so the single deliberate
-crossing sits on stable ground; any other road that would cross the water is
-dropped, and the two banks stay connected through the ford. `integrateRiverCrossings`
-then splits each road-channel intersection into a shared node marked
-`crossing: "bridge"` — including crossings that fall exactly on a river-centerline
-vertex, which a ford does. A straight trunk can still incidentally re-cross a
-meander; removing those, and extending fords to the other settlement profiles, is
-deferred to M12d.
+crossing** (M12b). Every road generator — clustered and profile forms (M12d) —
+forbids roads from entering the open channel except near a *ford*. `chooseFords`
+scores centerline points inside the buildable area for gentle banks, a narrow
+channel, and centrality, and keeps the best one. The principal route is anchored to
+cross there, so the single deliberate crossing sits on stable ground; any other road
+that would cross the water is dropped, and the two banks stay connected through the
+ford. A must-have spine is additionally **clipped to its traversable run**
+(`clipToTraversable`, M12d), which keeps it on land and removes a straight trunk's
+incidental re-crossings of a meander — so every crossing really is the one ford.
+`integrateRiverCrossings` then splits each road-channel intersection into a shared
+node marked `crossing: "bridge"` — including crossings that fall exactly on a
+river-centerline vertex, which a ford does.
 
 Finally, `applyHydrology` marks every terrain sample under a channel or closed
 body as non-land and non-buildable, and records the bodies on `terrain.hydrology`
@@ -405,10 +410,10 @@ coast) alongside its river ribbons, so one `MapModel.water` dataset drives both
 Babylon and SVG.
 
 The terrain now *selects*, *positions the crossing of*, *excludes*, and — for
-rivers and single-region coasts — *shapes* water from the height field. What
-remains: rivers still follow a Catmull meander rather than true steepest descent,
-standing lakes are still heuristic, and an island's ring-shaped sea awaits
-polygon-with-hole support (M12d).
+rivers and all coasts, including islands — *shapes* water from the height field.
+What remains for later milestones: rivers still follow a Catmull meander rather
+than true steepest descent, and standing lakes are still heuristic organic blobs
+rather than traced basins.
 
 ### 9. Turn useful street frontage into parcels
 
@@ -464,21 +469,20 @@ a deliberate generation change.
 
 ## Future phase boundaries
 
-The terrain-first re-architecture is partway done. M9–M11 put the substrate in
-place — relief, terrain-driven hydrology selection, and siting — and M12 has begun
-handing road geometry over to it. The parcel and building stages still do not read
-the height field. The remaining work completes that handover, and only then paints
-decoration on top:
+The terrain-first re-architecture is well under way. M9–M11 put the substrate in
+place — relief, terrain-driven hydrology selection, and siting — and **M12 handed
+road and water geometry over to it**. The parcel and building stages still do not
+read the height field. The remaining work completes that handover, and only then
+paints decoration on top:
 
-- **M12 terrain-constrained roads & crossings:** the clustered generator routes
-  roads onto traversable land and runs the trunk with the terrain grain (M12a),
-  crosses a bisecting river at a single deliberate ford chosen for gentle banks
-  (M12b), and traces coastlines and varies river width from the height field so
-  coves, peninsulas, and downstream widening are real terrain features (M12c). Still
-  to come (M12d): terrain routing and fords for the other settlement profiles;
-  approaches and primaries routed *through* terrain gaps rather than only kept out
-  of the sea; removing a trunk's incidental re-crossings of a meander; and
-  polygon-with-hole support so an island's ring-shaped sea is also traced.
+- **M12 terrain-constrained roads & crossings (done):** every road generator routes
+  onto traversable land and runs its spine with the terrain grain, clipping it to
+  stay off water and steep ground (M12a, M12d); a bisecting river is crossed at one
+  deliberate ford on gentle banks with no incidental re-crossings (M12b, M12d);
+  coastlines — including islands' ring seas — and variable river width are traced
+  from the height field (M12c, M12d); and approaches keep to traversable corridors,
+  never into the sea, up a cliff, or across the open channel (M12c, M12d). What is
+  left sits in later milestones: steepest-descent rivers and traced standing lakes.
 - **M13 terrain-constrained parcels, buildings & siting refinement:** exclude
   water, floodplain, steep, and inaccessible land from lots and houses; weight
   density by buildability; and derive the settlement envelope and morphology from

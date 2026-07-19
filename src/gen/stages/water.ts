@@ -58,12 +58,13 @@ export function resolveRiver(rng: Rng, params: RiverResolveParams): River | unde
 /** Resolve standing water after roads, so closed bodies can avoid the road graph. */
 export function resolveStandingWater(rng: Rng, params: StandingWaterResolveParams): StandingWater {
     const kind = params.standingWaterKind === "auto" ? terrainWaterKind(params.terrain.profile) : params.standingWaterKind;
-    // A coast traces its shoreline from the height field, so coves, peninsulas, and
-    // irregular coasts follow the actual land/sea boundary. Falls back to the
-    // heuristic reserve when the terrain has no traceable single-region sea.
+    // A coast traces its shoreline from the height field, so coves, peninsulas,
+    // irregular coasts, and islands (whose surrounding sea is a ring) follow the
+    // actual land/sea boundary. Falls back to the heuristic reserve when the terrain
+    // has no traceable sea.
     if (kind === "coast") {
         const sea = terrainSea(params.terrain);
-        if (sea) return { kind, polygon: sea };
+        if (sea) return { kind, polygon: sea.polygon, ...(sea.holes.length ? { holes: sea.holes } : {}) };
     }
     return generateStandingWater(rng, {
         boundary: params.boundary,
@@ -76,11 +77,11 @@ export function resolveStandingWater(rng: Rng, params: StandingWaterResolveParam
 }
 
 /**
- * Trace the sea (height below sea level) as a single simple polygon following the
- * true shoreline. Returns null when the sea is absent, negligible, or a ring around
- * an island (which needs a hole and is left to the heuristic fallback).
+ * Trace the sea (height below sea level) as a polygon following the true shoreline,
+ * plus any land islands within it as holes. Returns null when the sea is absent or
+ * negligible.
  */
-export function terrainSea(terrain: TerrainModel): Polygon | null {
+export function terrainSea(terrain: TerrainModel): { polygon: Polygon; holes: Polygon[] } | null {
     const { bounds, resolution } = terrain;
     const grid: ContourGrid = {
         values: terrain.samples.map((sample) => sample.height),
@@ -96,11 +97,12 @@ export function terrainSea(terrain: TerrainModel): Polygon | null {
     const seaLoops = loops.filter((loop) => signedArea(loop) > 0).sort((a, b) => area(b) - area(a));
     const sea = seaLoops[0];
     if (!sea || area(sea) < mapArea * 0.02) return null;
-    // A land island inside the sea makes it a ring we cannot express as one simple
-    // polygon; defer those to the heuristic coast.
-    const holes = loops.filter((loop) => signedArea(loop) < 0);
-    if (holes.some((loop) => area(loop) > mapArea * 0.01 && contains(sea, centroid(loop)))) return null;
-    return dedupePolygon(sea.map((point) => clampToBounds(point, bounds)));
+    const clamp = (loop: Polygon): Polygon => dedupePolygon(loop.map((point) => clampToBounds(point, bounds)));
+    // Land islands (CW loops) enclosed by the sea become holes cut from it.
+    const holes = loops
+        .filter((loop) => signedArea(loop) < 0 && area(loop) > mapArea * 0.01 && contains(sea, centroid(loop)))
+        .map(clamp);
+    return { polygon: clamp(sea), holes };
 }
 
 /** Drop consecutive duplicate vertices (clamping to bounds can coincide points). */
@@ -234,7 +236,9 @@ export function distanceToRiver(point: Vec2, river: River): number {
 export function distanceToWater(point: Vec2, water: River | StandingWater): number {
     if (water.kind === "river") return Math.max(0, distanceToRiver(point, water) - water.width / 2);
     let best = Infinity;
-    for (let i = 0; i < water.polygon.length; i++) best = Math.min(best, distancePointToSegment(point, water.polygon[i], water.polygon[(i + 1) % water.polygon.length]));
+    for (const ring of [water.polygon, ...(water.holes ?? [])]) {
+        for (let i = 0; i < ring.length; i++) best = Math.min(best, distancePointToSegment(point, ring[i], ring[(i + 1) % ring.length]));
+    }
     return best;
 }
 

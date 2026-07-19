@@ -1,5 +1,6 @@
 // Water mesher: flat ribbon quads for river channels, ear-clipped fills for closed
-// bodies (ponds, lakes, and traced coastlines, which may be concave). PURE.
+// bodies (ponds, lakes, and traced coastlines, which may be concave and — for an
+// island's surrounding sea — have holes). PURE.
 
 import type { Vec2, WaterBody } from "../../gen/types";
 import type { GeometryData } from "../geometryData";
@@ -13,11 +14,14 @@ export function waterGeometry(water: readonly WaterBody[], y = 0): GeometryData 
             rightB: body.rightBank[index + 1],
         }))
         : []);
-    const closedBodies = water.filter((body) => body.kind !== "river");
-    const triangulations = closedBodies.map((body) => earClip(body.polygon));
+    // Bridge any holes into the outer ring so each closed body is one simple polygon.
+    const rings = water
+        .filter((body) => body.kind !== "river")
+        .map((body) => (body.holes?.length ? bridgeHoles(body.polygon, body.holes) : body.polygon));
+    const triangulations = rings.map(earClip);
 
     const riverVertexCount = segments.length * 4;
-    const polygonVertexCount = closedBodies.reduce((sum, body) => sum + body.polygon.length, 0);
+    const polygonVertexCount = rings.reduce((sum, ring) => sum + ring.length, 0);
     const polygonIndexCount = triangulations.reduce((sum, tris) => sum + tris.length, 0);
     const positions = new Float32Array((riverVertexCount + polygonVertexCount) * 3);
     const normals = new Float32Array((riverVertexCount + polygonVertexCount) * 3);
@@ -44,19 +48,74 @@ export function waterGeometry(water: readonly WaterBody[], y = 0): GeometryData 
 
     let vertex = riverVertexCount;
     let index = segments.length * 6;
-    closedBodies.forEach((body, bodyIndex) => {
+    rings.forEach((ring, ringIndex) => {
         const ringStart = vertex;
-        for (const point of body.polygon) {
+        for (const point of ring) {
             positions[vertex * 3] = point.x;
             positions[vertex * 3 + 1] = y;
             positions[vertex * 3 + 2] = point.y;
             normals[vertex * 3 + 1] = 1;
             vertex++;
         }
-        for (const local of triangulations[bodyIndex]) indices[index++] = ringStart + local;
+        for (const local of triangulations[ringIndex]) indices[index++] = ringStart + local;
     });
 
     return { positions, normals, indices };
+}
+
+/** Splice each hole into the outer ring with a zero-width bridge, producing one
+ *  simple polygon that ear clipping can triangulate. */
+function bridgeHoles(outer: readonly Vec2[], holes: readonly Vec2[][]): Vec2[] {
+    let merged: Vec2[] = [...outer];
+    // Bridge holes right-to-left so an outer vertex chosen for one is still valid.
+    const ordered = [...holes].sort((a, b) => maxX(b) - maxX(a));
+    for (const hole of ordered) {
+        let mIdx = 0;
+        for (let i = 1; i < hole.length; i++) if (hole[i].x > hole[mIdx].x) mIdx = i;
+        const m = hole[mIdx];
+        let oIdx = -1;
+        let bestDistance = Infinity;
+        for (let i = 0; i < merged.length; i++) {
+            if (merged[i].x < m.x) continue;
+            const d = (merged[i].x - m.x) ** 2 + (merged[i].y - m.y) ** 2;
+            if (d < bestDistance && visible(m, merged[i], merged, i)) {
+                bestDistance = d;
+                oIdx = i;
+            }
+        }
+        if (oIdx < 0) continue; // no clean bridge; leave this hole unfilled in 3D
+        const rotated = [...hole.slice(mIdx), ...hole.slice(0, mIdx)];
+        merged = [
+            ...merged.slice(0, oIdx + 1),
+            ...rotated,
+            rotated[0],
+            merged[oIdx],
+            ...merged.slice(oIdx + 1),
+        ];
+    }
+    return merged;
+}
+
+function maxX(poly: readonly Vec2[]): number {
+    return poly.reduce((m, p) => Math.max(m, p.x), -Infinity);
+}
+
+/** Is the bridge segment m->o clear of the merged ring's edges (skipping the ones at o)? */
+function visible(m: Vec2, o: Vec2, ring: readonly Vec2[], oIdx: number): boolean {
+    for (let i = 0; i < ring.length; i++) {
+        const j = (i + 1) % ring.length;
+        if (i === oIdx || j === oIdx) continue;
+        if (segmentsCross(m, o, ring[i], ring[j])) return false;
+    }
+    return true;
+}
+
+function segmentsCross(a: Vec2, b: Vec2, c: Vec2, d: Vec2): boolean {
+    const d1 = cross(c, d, a);
+    const d2 = cross(c, d, b);
+    const d3 = cross(a, b, c);
+    const d4 = cross(a, b, d);
+    return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
 }
 
 /** Ear-clipping triangulation of a simple CCW polygon; returns local index triples. */

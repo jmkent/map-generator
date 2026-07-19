@@ -43,9 +43,16 @@ export function renderModelSvg(model: MapModel, opts: SvgOptions = {}): string {
     const waterLines = model.water.flatMap((body) => body.kind === "river"
         ? [`  <polygon points="${ring([...body.leftBank, ...[...body.rightBank].reverse()])}" fill="#5fa8d3" stroke="#bfe0f2" stroke-width="0.5"/>`]
         : []);
-    const waterPolys = model.water.filter((body) => body.kind !== "river").map(
-        (body) => `  <polygon points="${ring(body.polygon)}" fill="#5fa8d3" stroke="#bfe0f2" stroke-width="0.5"/>`,
-    );
+    const subpath = (poly: { x: number; y: number }[]) => `M ${poly.map((p) => `${tx(p.x)},${ty(p.y)}`).join(" L ")} Z`;
+    const waterPolys = model.water.filter((body) => body.kind !== "river").map((body) => {
+        // A body with holes (an island's surrounding sea) needs an even-odd path so
+        // the island reads as land; a simple coast stays a plain polygon.
+        if (body.holes && body.holes.length > 0) {
+            const d = [body.polygon, ...body.holes].map(subpath).join(" ");
+            return `  <path d="${d}" fill-rule="evenodd" fill="#5fa8d3" stroke="#bfe0f2" stroke-width="0.5"/>`;
+        }
+        return `  <polygon points="${ring(body.polygon)}" fill="#5fa8d3" stroke="#bfe0f2" stroke-width="0.5"/>`;
+    });
     const parcelPolys = model.parcels.map(
         (p) => `  <polygon points="${ring(p.polygon)}" fill="none" stroke="#4a5568" stroke-width="0.4"/>`,
     );

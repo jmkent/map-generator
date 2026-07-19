@@ -71,8 +71,11 @@ export function generateParcels(rng: Rng, params: ParcelParams): Parcel[] {
                 // obvious corner case and a lot spanning across a common.
                 if (layout.civicSpaces.some((space) => convexOverlap(lot, space.polygon, 0))) continue;
                 // Coastlines are traced and can be concave, so use the general
-                // (non-convex) overlap test to keep lots out of the water.
-                if (water.some((body) => body.kind !== "river" && polygonsOverlap(lot, body.polygon))) continue;
+                // (non-convex) overlap test to keep lots out of the water. A lot
+                // sitting entirely on a land island (inside a hole) is not in water.
+                if (water.some((body) => body.kind !== "river"
+                    && polygonsOverlap(lot, body.polygon)
+                    && !(body.holes ?? []).some((hole) => lot.every((c) => contains(hole, c))))) continue;
                 if (corridors.some((c) => convexOverlap(lot, c.rect, 0.05))) continue;
                 if (accepted.some((p) => convexOverlap(lot, p.polygon, 0.05))) continue;
 

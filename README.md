@@ -36,7 +36,7 @@ seed + params ─▶ gen/ (pure) ─▶ MapModel ─┬─▶ render/ (Babylon) 
 
 ## Status
 
-Implemented through **M11**. The generator is now **terrain-first**: it builds a
+Implemented through **M12**. The generator is now **terrain-first**: it builds a
 local landscape, then settles a village onto it.
 
 - **Deterministic core (M0–M1):** seeded RNG with named streams, a geometry
@@ -53,10 +53,15 @@ local landscape, then settles a village onto it.
   landform and excluded from the buildable surface (M10), and settlement **siting**
   on the largest connected buildable component (M11). Terrain renders as a raised
   relief mesh; everything also renders to SVG for tests.
+- **Terrain-constrained roads & water (M12):** roads follow the land and cross a
+  river at one deliberate ford; **coastlines are traced from the height field** —
+  coves, peninsulas, and islands (a ring sea drawn as a polygon with a hole) — and
+  rivers **vary in width**, widening downstream; approaches keep to dry, gentle
+  corridors.
 
-Next up (see [PLAN.md](./PLAN.md)): handing road, parcel, and building geometry
-over to the terrain (M12–M13), then *decorative land cover* — fields and woodlands
-(M14) — and interactivity and inspection overlays (M15).
+Next up (see [PLAN.md](./PLAN.md)): handing parcel and building geometry over to the
+terrain (M13), then *decorative land cover* — fields and woodlands (M14) — and
+interactivity and inspection overlays (M15).
 
 ## Running
 

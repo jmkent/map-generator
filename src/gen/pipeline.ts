@@ -103,6 +103,7 @@ export function generateVillage(seed: string, params: Partial<VillageParams> = {
         maxCount: p.approachRoadMax,
         width: p.primaryRoadWidth,
         terrain,
+        river,
     });
     const standingWater = resolveStandingWater(hydrologyRng, {
         terrain,

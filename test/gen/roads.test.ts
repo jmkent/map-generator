@@ -268,6 +268,60 @@ describe("deliberate river crossings (M12b)", () => {
             expect(Math.min(...crossingBankSlopes)).toBeLessThanOrEqual(gentlest + 0.06);
         });
     }
+
+    it("crosses the river only at one ford, without incidental re-crossings", () => {
+        // tarry's straight trunk used to re-cross a meander (two scattered bridges);
+        // clipping the trunk to its traversable run leaves a single ford.
+        const model = generateVillage("tarry", { settlementProfile: "haufendorf", terrainProfile: "plain", riverChance: 1 });
+        const river = model.water.find((body) => body.kind === "river");
+        if (!river || river.kind !== "river") return;
+        const bridges = model.roads.nodes.filter((node) => node.crossing === "bridge");
+        expect(bridges.length).toBeGreaterThan(0);
+        // Every bridge sits in one compact ford region, not scattered along the river.
+        const cx = bridges.reduce((s, n) => s + n.pos.x, 0) / bridges.length;
+        const cy = bridges.reduce((s, n) => s + n.pos.y, 0) / bridges.length;
+        for (const node of bridges) {
+            expect(Math.hypot(node.pos.x - cx, node.pos.y - cy)).toBeLessThanOrEqual(river.width * 2.5);
+        }
+    });
+});
+
+describe("terrain-constrained profile forms & approaches (M12d)", () => {
+    const PROFILES = ["reihendorf", "tenement", "weiler", "angerdorf", "estate"] as const;
+    for (const profile of PROFILES) {
+        it(`keeps ${profile} roads on land for coast terrain`, () => {
+            const model = generateVillage(`m12d-${profile}`, { settlementProfile: profile, terrainProfile: "coast", riverChance: 0 });
+            const net = model.roads;
+            expect(net.edges.length).toBeGreaterThan(0);
+            expect(componentCount(net)).toBe(1);
+            const base = generateTerrain(createRng(`m12d-${profile}`).stream("terrain"), { radius: DEFAULT_PARAMS.radius, profile: "coast" });
+            const pos = new Map(net.nodes.map((node) => [node.id, node.pos]));
+            for (const edge of net.edges) {
+                if (edge.kind === "approach") continue;
+                const a = pos.get(edge.a)!;
+                const b = pos.get(edge.b)!;
+                const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+                expect(terrainSampleAt(base, mid).land, `${profile} road on water`).toBe(true);
+            }
+        });
+    }
+
+    it("keeps approaches out of the sea and off steep faces", () => {
+        for (const profile of ["coast", "island", "ridge"] as const) {
+            const model = generateVillage("m12d-approach", { settlementProfile: "haufendorf", terrainProfile: profile });
+            const base = generateTerrain(createRng("m12d-approach").stream("terrain"), { radius: DEFAULT_PARAMS.radius, profile });
+            const pos = new Map(model.roads.nodes.map((node) => [node.id, node.pos]));
+            for (const edge of model.roads.edges.filter((e) => e.kind === "approach")) {
+                const a = pos.get(edge.a)!;
+                const b = pos.get(edge.b)!;
+                for (let t = 0; t <= 1; t += 0.1) {
+                    const sample = terrainSampleAt(base, { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+                    expect(sample.land, `${profile} approach on water`).toBe(true);
+                    expect(sample.slope).toBeLessThanOrEqual(0.42 + 0.06);
+                }
+            }
+        }
+    });
 });
 
 function insideBounds(bounds: { minX: number; minY: number; maxX: number; maxY: number }, point: Pt): boolean {

@@ -234,6 +234,8 @@ export interface River {
 export interface StandingWater {
     kind: "pond" | "lake" | "coast";
     polygon: Polygon;
+    /** Land islands cut out of the body (e.g. an island's surrounding sea). */
+    holes?: Polygon[];
 }
 
 export type WaterBody = River | StandingWater;

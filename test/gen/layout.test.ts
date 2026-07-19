@@ -41,7 +41,7 @@ describe("settlement layout profiles", () => {
 
     for (const profile of ["angerdorf", "rundling"] as const) {
         it(`reserves the civic green for ${profile}`, () => {
-            const model = generateVillage("civic-space", { settlementProfile: profile });
+            const model = generateVillage("civic-space", { settlementProfile: profile, terrainProfile: "plain" });
             expect(model.civicSpaces).toHaveLength(1);
             const green = model.civicSpaces[0].polygon;
 
@@ -55,8 +55,8 @@ describe("settlement layout profiles", () => {
     }
 
     it("uses a substantially deeper frontage band for tenement plots", () => {
-        const reihendorf = generateVillage("frontage-depth", { settlementProfile: "reihendorf" });
-        const tenement = generateVillage("frontage-depth", { settlementProfile: "tenement" });
+        const reihendorf = generateVillage("frontage-depth", { settlementProfile: "reihendorf", terrainProfile: "plain" });
+        const tenement = generateVillage("frontage-depth", { settlementProfile: "tenement", terrainProfile: "plain" });
         const meanDepth = (model: typeof reihendorf) =>
             model.parcels.reduce((sum, parcel) => sum + Math.hypot(
                 parcel.polygon[2].x - parcel.polygon[1].x,
