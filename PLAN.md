@@ -66,6 +66,7 @@ src/
       polygon.ts           # area, centroid, contains, inset/offset, bbox, SAT overlap
       catmullRom.ts        # centripetal spline through control points
       graph.ts             # road-graph planarization: edge intersection + splitting
+      contour.ts           # marching-squares iso-contours (shoreline tracing, M12c)
       sampling.ts          # weighted pick, poisson-disk, jitter
       voronoi.ts           # d3-delaunay wrapper + Lloyd relaxation (M14, land cover)
     stages/
@@ -629,22 +630,33 @@ and cross water at deliberate points.
   was hardened to flag crossings that land on a river-centerline vertex (which a ford does), not
   only interior crossings. A straight trunk can still incidentally re-cross a meander; making every
   crossing deliberate (and profile-form crossings) is left to M12d.
-- **[ ] M12c — height-field hydrology geometry (M10 carryover).** Trace river channels down the
-  gradient to a lake or coast and shorelines along the sub-sea-level contour, replacing the
-  profile-heuristic placement so banks and shores are real terrain features.
-- **[ ] M12d — profile-form & approach corridors.** Extend terrain-constrained routing (and ford
-  crossings) to the non-`haufendorf` profiles; make approaches and primaries enter the site through
-  terrain gaps (valley mouths, shore edges); and suppress the trunk's incidental re-crossings of a
-  meander so *every* crossing is a chosen ford.
+- **[x] M12c — height-field hydrology geometry (M10 carryover).** Coastlines are traced from the
+  sub-sea-level contour of the height field via marching squares (`geometry/contour.ts` →
+  `terrainSea`), so coves, peninsulas, and irregular coasts follow the real land/sea boundary
+  instead of a straight jittered strip. Rivers vary in width, tapering from a narrow source to a
+  wide mouth, oriented by terrain height so they widen downstream. Approaches no longer run into the
+  sea. The traced coast can be concave, so the water mesher ear-clips (not fan-triangulates) and
+  parcel/water overlap uses a general (non-convex) test. Deferred: the ring case (an island's
+  surrounding sea) needs a polygon-with-hole and still uses the heuristic strip; standing `lake`
+  bodies are not yet traced; rivers still follow a Catmull meander rather than steepest descent.
+- **[ ] M12d — profile-form & approach corridors, island seas.** Extend terrain-constrained routing
+  (and ford crossings) to the non-`haufendorf` profiles; route approaches and primaries through
+  terrain gaps (valley mouths, shore edges) rather than only rejecting sea crossings; suppress the
+  trunk's incidental re-crossings of a meander so *every* crossing is a chosen ford; and represent
+  island/ring seas (polygon-with-hole) so they too are terrain-traced.
 
 **Test plan:**
 - **Invariants:** no accepted road segment exceeds the traversable-slope threshold beyond tolerance
   and none lies on water *(M12a — asserted against the base terrain roads consume, across relief
   profiles and seeds)*; a river-straddling village stays a single connected component and its best
-  bridge sits at the gentlest bank the river offers inside the settlement *(M12b)*; graph stays
-  connected and planar; approaches still reach the terrain edge.
-- **Determinism + stream isolation; golden SVG.** The road-topology invariants pin `plain` terrain
-  so they exercise the algorithm independent of relief; a separate suite covers relief behavior.
+  bridge sits at the gentlest bank the river offers inside the settlement *(M12b)*; a traced coast
+  agrees with the terrain's own land/sea mask over >90% of cells, reaches the map edge, and is
+  detailed (not a ~15-point strip); a river's width varies >2.5× and its wide end sits on lower
+  ground *(M12c)*; graph stays connected and planar. Marching-squares contour extraction is unit
+  tested (orientation, interpolation, submerged/dry fields).
+- **Determinism + stream isolation; golden SVG.** The road-topology and morphology invariants pin
+  `plain` terrain so they exercise the algorithm independent of relief (a coast can legitimately
+  drop entrances below `approachRoadMin`); separate suites cover relief and coastline behavior.
 
 ### [ ] M13 — Terrain-constrained parcels, buildings & siting refinement
 Parcels and buildings must respect the same terrain the roads now follow, and settlement

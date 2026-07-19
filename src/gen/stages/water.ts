@@ -3,7 +3,8 @@
 import type { Bounds, Polygon, River, RoadEdge, RoadNetwork, RoadNode, StandingWater, TerrainModel, Vec2, VillageParams } from "../types";
 import type { Rng } from "../rng";
 import { catmullRom } from "../geometry/catmullRom";
-import { contains, ensureCCW } from "../geometry/polygon";
+import { area, centroid, contains, ensureCCW, signedArea } from "../geometry/polygon";
+import { isoContours, type ContourGrid } from "../geometry/contour";
 import { add, lerp, normalize, perp, scale, sub } from "../geometry/vec2";
 
 export interface RiverParams {
@@ -11,6 +12,8 @@ export interface RiverParams {
     mapBounds: Bounds;
     radius: number;
     width: number;
+    /** Height field used to orient flow (source high, mouth low) and vary width. */
+    terrain?: TerrainModel;
 }
 
 export interface StandingWaterParams {
@@ -48,13 +51,20 @@ export interface StandingWaterResolveParams {
 export function resolveRiver(rng: Rng, params: RiverResolveParams): River | undefined {
     const riverChance = terrainRiverChance(params.terrain.profile, params.riverChance);
     return rng.chance(riverChance)
-        ? generateRiver(rng, { boundary: params.boundary, mapBounds: params.terrain.bounds, radius: params.radius, width: params.riverWidth })
+        ? generateRiver(rng, { boundary: params.boundary, mapBounds: params.terrain.bounds, radius: params.radius, width: params.riverWidth, terrain: params.terrain })
         : undefined;
 }
 
 /** Resolve standing water after roads, so closed bodies can avoid the road graph. */
 export function resolveStandingWater(rng: Rng, params: StandingWaterResolveParams): StandingWater {
     const kind = params.standingWaterKind === "auto" ? terrainWaterKind(params.terrain.profile) : params.standingWaterKind;
+    // A coast traces its shoreline from the height field, so coves, peninsulas, and
+    // irregular coasts follow the actual land/sea boundary. Falls back to the
+    // heuristic reserve when the terrain has no traceable single-region sea.
+    if (kind === "coast") {
+        const sea = terrainSea(params.terrain);
+        if (sea) return { kind, polygon: sea };
+    }
     return generateStandingWater(rng, {
         boundary: params.boundary,
         mapBounds: params.terrain.bounds,
@@ -63,6 +73,45 @@ export function resolveStandingWater(rng: Rng, params: StandingWaterResolveParam
         radius: params.radius,
         kind,
     });
+}
+
+/**
+ * Trace the sea (height below sea level) as a single simple polygon following the
+ * true shoreline. Returns null when the sea is absent, negligible, or a ring around
+ * an island (which needs a hole and is left to the heuristic fallback).
+ */
+export function terrainSea(terrain: TerrainModel): Polygon | null {
+    const { bounds, resolution } = terrain;
+    const grid: ContourGrid = {
+        values: terrain.samples.map((sample) => sample.height),
+        cols: resolution,
+        rows: resolution,
+        toWorld: (col, row) => ({
+            x: bounds.minX + (bounds.maxX - bounds.minX) * col / (resolution - 1),
+            y: bounds.minY + (bounds.maxY - bounds.minY) * row / (resolution - 1),
+        }),
+    };
+    const loops = isoContours(grid, terrain.seaLevel);
+    const mapArea = (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY);
+    const seaLoops = loops.filter((loop) => signedArea(loop) > 0).sort((a, b) => area(b) - area(a));
+    const sea = seaLoops[0];
+    if (!sea || area(sea) < mapArea * 0.02) return null;
+    // A land island inside the sea makes it a ring we cannot express as one simple
+    // polygon; defer those to the heuristic coast.
+    const holes = loops.filter((loop) => signedArea(loop) < 0);
+    if (holes.some((loop) => area(loop) > mapArea * 0.01 && contains(sea, centroid(loop)))) return null;
+    return dedupePolygon(sea.map((point) => clampToBounds(point, bounds)));
+}
+
+/** Drop consecutive duplicate vertices (clamping to bounds can coincide points). */
+function dedupePolygon(poly: Polygon): Polygon {
+    const out: Polygon = [];
+    for (const p of poly) {
+        const last = out[out.length - 1];
+        if (!last || Math.hypot(last.x - p.x, last.y - p.y) > 1e-6) out.push(p);
+    }
+    while (out.length >= 2 && Math.hypot(out[0].x - out[out.length - 1].x, out[0].y - out[out.length - 1].y) <= 1e-6) out.pop();
+    return out;
 }
 
 function terrainRiverChance(profile: TerrainModel["profile"], configured: number): number {
@@ -107,7 +156,7 @@ export function generateRiver(rng: Rng, params: RiverParams): River {
             { x: endCross, y: mapBounds.maxY },
         ];
     const path = catmullRom(controls, 10);
-    const { leftBank, rightBank } = riverBanks(rng, path, width, mapBounds);
+    const { leftBank, rightBank } = riverBanks(rng, path, width, mapBounds, params.terrain);
     return { kind: "river", path, leftBank, rightBank, width };
 }
 
@@ -259,21 +308,38 @@ function coastPolygon(rng: Rng, side: "left" | "right" | "bottom" | "top", minX:
     return ensureCCW(polygon);
 }
 
-function riverBanks(rng: Rng, path: Vec2[], width: number, bounds: Bounds): { leftBank: Vec2[]; rightBank: Vec2[] } {
+function riverBanks(rng: Rng, path: Vec2[], width: number, bounds: Bounds, terrain?: TerrainModel): { leftBank: Vec2[]; rightBank: Vec2[] } {
     const leftBank: Vec2[] = [];
     const rightBank: Vec2[] = [];
+    // Orient the channel so the mouth is the lower (downstream) end. Rivers widen
+    // markedly from source to mouth; the local noise then wanders that envelope.
+    const startHigh = terrain ? sampleHeight(terrain, path[0]) : 0;
+    const endHigh = terrain ? sampleHeight(terrain, path[path.length - 1]) : 0;
+    const mouthAtEnd = endHigh <= startHigh;
     let previousNoise = rng.float(-0.16, 0.16);
     for (let i = 0; i < path.length; i++) {
         const before = path[Math.max(0, i - 1)];
         const after = path[Math.min(path.length - 1, i + 1)];
         const normal = normalize(perp(sub(after, before)));
-        const noise = i === 0 || i === path.length - 1 ? 0 : previousNoise * 0.6 + rng.float(-0.13, 0.13);
+        const noise = i === 0 || i === path.length - 1 ? 0 : previousNoise * 0.6 + rng.float(-0.2, 0.2);
         previousNoise = noise;
-        const half = width * (0.5 + noise);
+        // Fraction from source (0) to mouth (1) along the path.
+        const along = path.length > 1 ? i / (path.length - 1) : 0;
+        const downstream = mouthAtEnd ? along : 1 - along;
+        const taper = 0.4 + downstream * downstream * 1.3; // ~0.4x at source, ~1.7x at mouth
+        const half = width * taper * (0.5 + noise);
         leftBank.push(clampToBounds(add(path[i], scale(normal, half)), bounds));
         rightBank.push(clampToBounds(sub(path[i], scale(normal, half)), bounds));
     }
     return { leftBank, rightBank };
+}
+
+/** Nearest height-field sample to a world point (avoids a terrain->water import cycle). */
+function sampleHeight(terrain: TerrainModel, point: Vec2): number {
+    const { bounds, resolution } = terrain;
+    const tx = clamp(Math.round((point.x - bounds.minX) / (bounds.maxX - bounds.minX) * (resolution - 1)), 0, resolution - 1);
+    const ty = clamp(Math.round((point.y - bounds.minY) / (bounds.maxY - bounds.minY) * (resolution - 1)), 0, resolution - 1);
+    return terrain.samples[ty * resolution + tx].height;
 }
 
 function clampToBounds(point: Vec2, bounds: Bounds): Vec2 {

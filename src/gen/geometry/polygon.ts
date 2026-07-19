@@ -226,6 +226,24 @@ export function convexOverlap(a: Polygon, b: Polygon, eps = 1e-6): boolean {
 }
 
 /**
+ * Do two simple (possibly concave) polygons share interior area? True if any
+ * vertex of one lies inside the other or any pair of edges crosses. Unlike
+ * {@link convexOverlap} this makes no convexity assumption, so it is correct for
+ * traced shorelines; edges merely touching are not reported (strict crossing).
+ */
+export function polygonsOverlap(a: Polygon, b: Polygon): boolean {
+    if (a.some((p) => contains(b, p)) || b.some((p) => contains(a, p))) return true;
+    for (let i = 0; i < a.length; i++) {
+        const a1 = a[i];
+        const a2 = a[(i + 1) % a.length];
+        for (let j = 0; j < b.length; j++) {
+            if (segmentsIntersect(a1, a2, b[j], b[(j + 1) % b.length])) return true;
+        }
+    }
+    return false;
+}
+
+/**
  * Nearest forward intersection of a ray (origin + t·dir, t>0) with the polygon's
  * edges. Returns the hit point and its distance along the ray, or null if the
  * ray misses. `dir` need not be normalized; `distance` is in units of `dir`.

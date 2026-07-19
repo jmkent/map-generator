@@ -8,7 +8,7 @@
 
 import { ROAD_CLASS_POLICIES, type Parcel, type Polygon, type RoadNetwork, type SettlementLayout, type Vec2, type WaterBody } from "../types";
 import type { Rng } from "../rng";
-import { centroid, contains, convexOverlap, ensureCCW } from "../geometry/polygon";
+import { centroid, contains, convexOverlap, ensureCCW, polygonsOverlap } from "../geometry/polygon";
 import { roadChains } from "../geometry/graph";
 import { add, dist, normalize, perp, scale, sub } from "../geometry/vec2";
 import { distanceToWater } from "./water";
@@ -70,7 +70,9 @@ export function generateParcels(rng: Rng, params: ParcelParams): Parcel[] {
                 // Greens are convex just like lots, so SAT catches both the
                 // obvious corner case and a lot spanning across a common.
                 if (layout.civicSpaces.some((space) => convexOverlap(lot, space.polygon, 0))) continue;
-                if (water.some((body) => body.kind !== "river" && convexOverlap(lot, body.polygon, 0.05))) continue;
+                // Coastlines are traced and can be concave, so use the general
+                // (non-convex) overlap test to keep lots out of the water.
+                if (water.some((body) => body.kind !== "river" && polygonsOverlap(lot, body.polygon))) continue;
                 if (corridors.some((c) => convexOverlap(lot, c.rect, 0.05))) continue;
                 if (accepted.some((p) => convexOverlap(lot, p.polygon, 0.05))) continue;
 

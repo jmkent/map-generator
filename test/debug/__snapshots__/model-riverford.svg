@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 766 766" width="766" height="766">
   <rect width="766" height="766" fill="#276f2b"/>
   <polygon points="502.66,383 508.9,360.8 508.05,337.49 498.11,316.54 481.9,300.01 464.02,286.45 446.61,272.83 428.27,258.62 406.85,247.72 383,245.8 360.48,255.28 342.83,272.64 329.71,290.71 316.92,304.25 300.38,313.67 280.45,323.79 262.32,339.07 251.86,359.88 250.94,383 256.35,405.33 263.37,426.54 270.28,448.08 279.52,469.83 294.59,488.37 315.93,499.16 340.11,500.83 362.88,497.08 383,494.08 402.77,495.15 424.79,497.81 448.18,495.89 468.5,484.89 481.48,465.63 487.12,443.12 489.96,421.93 494.91,402.73" fill="none" stroke="#e8ecf1" stroke-width="1" stroke-dasharray="5 4" stroke-linejoin="round"/>
-  <polygon points="8,758 758,758 758,735.5 695.5,733.25 633,731.93 570.5,732.95 508,739.8 445.5,733.3 383,740.01 320.5,731.56 258,732.56 195.5,738.3 133,736.67 70.5,732.82 8,735.5" fill="#5fa8d3" stroke="#bfe0f2" stroke-width="0.5"/>
+  <polygon points="758,758 758,8 735.5,8 730.03,70.5 736.93,133 729.49,195.5 733.59,258 733.06,320.5 731.41,383 735.21,445.5 731.96,508 736.87,570.5 740.75,633 732.06,695.5 735.5,758" fill="#5fa8d3" stroke="#bfe0f2" stroke-width="0.5"/>
   <line x1="316.23" y1="319.02" x2="318.79" y2="320.77" stroke="#d9c48a" stroke-width="3.5" stroke-linecap="round"/>
   <line x1="318.79" y1="320.77" x2="321.37" y2="322.49" stroke="#d9c48a" stroke-width="3.5" stroke-linecap="round"/>
   <line x1="321.37" y1="322.49" x2="323.97" y2="324.19" stroke="#d9c48a" stroke-width="3.5" stroke-linecap="round"/>
@@ -230,8 +230,6 @@
   <line x1="350.4" y1="312.36" x2="349.7" y2="311.46" stroke="#b9a878" stroke-width="1.8" stroke-linecap="round"/>
   <line x1="349.7" y1="311.46" x2="348.99" y2="310.58" stroke="#b9a878" stroke-width="1.8" stroke-linecap="round"/>
   <line x1="348.99" y1="310.58" x2="348.26" y2="309.73" stroke="#b9a878" stroke-width="1.8" stroke-linecap="round"/>
-  <line x1="316.23" y1="319.02" x2="8" y2="107.79" stroke="#d9c48a" stroke-width="3.5" stroke-linecap="round"/>
-  <line x1="470.57" y1="457.72" x2="758" y2="671.26" stroke="#d9c48a" stroke-width="3.5" stroke-linecap="round"/>
   <polygon points="318.04,316.32 324.92,320.92 331.04,311.78 324.16,307.18" fill="none" stroke="#4a5568" stroke-width="0.4"/>
   <polygon points="315.41,335.62 323.12,340.57 329.07,331.31 321.36,326.36" fill="none" stroke="#4a5568" stroke-width="0.4"/>
   <polygon points="332.61,325.86 341.05,331.42 347.1,322.24 338.66,316.67" fill="none" stroke="#4a5568" stroke-width="0.4"/>

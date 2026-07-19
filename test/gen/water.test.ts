@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Vec2 } from "../../src/gen/types";
 import { generateVillage } from "../../src/gen/pipeline";
-import { contains, convexOverlap, ensureCCW } from "../../src/gen/geometry/polygon";
+import { contains, convexOverlap, ensureCCW, polygonsOverlap } from "../../src/gen/geometry/polygon";
 import { add, normalize, perp, scale, sub } from "../../src/gen/geometry/vec2";
 import { distanceToRiver } from "../../src/gen/stages/water";
 
@@ -97,7 +97,8 @@ describe("standing water and coastline", () => {
                 expect(segmentOverlapsPolygon(positions.get(edge.a)!, positions.get(edge.b)!, body.polygon)).toBe(false);
             }
             for (const building of model.buildings) {
-                expect(convexOverlap(building.footprint, body.polygon, 0.01)).toBe(false);
+                // Coastlines can be concave, so use the general overlap test.
+                expect(polygonsOverlap(building.footprint, body.polygon)).toBe(false);
             }
         });
     }
@@ -105,6 +106,64 @@ describe("standing water and coastline", () => {
     it("honors and deterministically resolves standing-water selection", () => {
         expect(generateVillage("standing-auto").water).toEqual(generateVillage("standing-auto").water);
         expect(generateVillage("standing-lake", { standingWaterKind: "lake" }).water.some((body) => body.kind === "lake")).toBe(true);
+    });
+});
+
+describe("terrain-derived hydrology (M12c)", () => {
+    for (const profile of ["coast", "cove", "peninsula"] as const) {
+        it(`traces the ${profile} shoreline from the height field`, () => {
+            const model = generateVillage(`m12c-${profile}`, { settlementProfile: "haufendorf", terrainProfile: profile });
+            const coast = model.water.find((body) => body.kind === "coast");
+            expect(coast, "expected a coast body").toBeDefined();
+            if (!coast || coast.kind !== "coast") return;
+
+            // A traced shoreline is detailed and reaches the map edge, unlike the
+            // old ~15-point heuristic strip.
+            expect(coast.polygon.length).toBeGreaterThan(20);
+            expect(coast.polygon.some((point) => onBounds(model.mapBounds, point))).toBe(true);
+
+            // The polygon agrees with the terrain's own land/sea mask: most grid
+            // cells inside the polygon are below sea level, and vice versa.
+            const terrain = model.terrain;
+            const { minX, minY, maxX, maxY } = terrain.bounds;
+            let agree = 0;
+            let total = 0;
+            for (let row = 0; row < terrain.resolution; row++) {
+                for (let col = 0; col < terrain.resolution; col++) {
+                    const point = {
+                        x: minX + (maxX - minX) * col / (terrain.resolution - 1),
+                        y: minY + (maxY - minY) * row / (terrain.resolution - 1),
+                    };
+                    const sea = !terrain.samples[row * terrain.resolution + col].land;
+                    if (contains(coast.polygon, point) === sea) agree++;
+                    total++;
+                }
+            }
+            expect(agree / total).toBeGreaterThan(0.9);
+        });
+    }
+
+    it("widens a river from source to mouth", () => {
+        const model = generateVillage("valley-flow", { settlementProfile: "haufendorf", terrainProfile: "river-valley", riverChance: 1 });
+        const river = model.water.find((body) => body.kind === "river");
+        expect(river).toBeDefined();
+        if (!river || river.kind !== "river") return;
+
+        const widths = river.leftBank.map((left, i) => Math.hypot(left.x - river.rightBank[i].x, left.y - river.rightBank[i].y));
+        // Pronounced downstream widening, not a near-uniform channel.
+        expect(Math.max(...widths) / Math.min(...widths)).toBeGreaterThan(2.5);
+
+        // The wide end sits on lower ground than the narrow end.
+        const heightAt = (p: Vec2): number => {
+            const t = model.terrain;
+            const cx = Math.round((p.x - t.bounds.minX) / (t.bounds.maxX - t.bounds.minX) * (t.resolution - 1));
+            const cy = Math.round((p.y - t.bounds.minY) / (t.bounds.maxY - t.bounds.minY) * (t.resolution - 1));
+            return t.samples[cy * t.resolution + cx].height;
+        };
+        const startWide = widths[0] > widths[widths.length - 1];
+        const mouth = startWide ? river.path[0] : river.path[river.path.length - 1];
+        const source = startWide ? river.path[river.path.length - 1] : river.path[0];
+        expect(heightAt(mouth)).toBeLessThanOrEqual(heightAt(source));
     });
 });
 

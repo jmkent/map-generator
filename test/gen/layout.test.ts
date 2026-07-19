@@ -17,7 +17,9 @@ const PROFILES: ResolvedSettlementProfile[] = [
 describe("settlement layout profiles", () => {
     for (const profile of PROFILES) {
         it(`generates an occupied ${profile} layout`, () => {
-            const model = generateVillage("m5-profile", { settlementProfile: profile });
+            // Flat terrain so entrance count is not trimmed by the sea (a coast can
+            // legitimately drop below approachRoadMin); this checks morphology.
+            const model = generateVillage("m5-profile", { settlementProfile: profile, terrainProfile: "plain" });
 
             expect(model.settlement.profile).toBe(profile);
             expect(model.roads.nodes.length).toBeGreaterThan(1);

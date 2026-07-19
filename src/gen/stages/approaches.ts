@@ -4,10 +4,11 @@
 // selected primary endpoints along their outgoing tangent to the countryside
 // edge, and re-planarizes the combined segment set.
 
-import type { Bounds, Polygon, RoadNetwork, Vec2 } from "../types";
+import type { Bounds, Polygon, RoadNetwork, TerrainModel, Vec2 } from "../types";
 import type { Rng } from "../rng";
 import { intersectRayPolygon } from "../geometry/polygon";
 import { planarize, type SegmentInput } from "../geometry/graph";
+import { terrainSampleAt } from "./terrain";
 import { normalize, sub } from "../geometry/vec2";
 
 export interface ApproachParams {
@@ -17,6 +18,8 @@ export interface ApproachParams {
     minCount: number;
     maxCount: number;
     width: number;
+    /** Height field; approaches never run out into the sea. */
+    terrain?: TerrainModel;
 }
 
 interface Candidate {
@@ -69,6 +72,8 @@ function primaryEndpointCandidates(params: ApproachParams): Candidate[] {
         const boundaryHit = intersectRayPolygon(params.boundary, endpoint, direction);
         const outer = rayToMapBounds(endpoint, direction, params.mapBounds);
         if (!boundaryHit || !outer || boundaryHit.distance >= distanceAlongRay(endpoint, outer, direction)) continue;
+        // Don't run an entrance out into the water; keep approaches on dry land.
+        if (params.terrain && crossesSea(params.terrain, endpoint, outer)) continue;
         candidates.push({ endpoint, direction, outer, angle: Math.atan2(direction.y, direction.x) });
     }
     return candidates;
@@ -92,6 +97,16 @@ function spreadCandidates(rng: Rng, candidates: Candidate[], count: number): Can
         selected.push(remaining.splice(bestIndex, 1)[0]);
     }
     return selected;
+}
+
+/** Sample the segment a->b; true if any point falls on non-land terrain (the sea). */
+function crossesSea(terrain: TerrainModel, a: Vec2, b: Vec2): boolean {
+    const steps = 24;
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        if (!terrainSampleAt(terrain, { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }).land) return true;
+    }
+    return false;
 }
 
 function rayToMapBounds(origin: Vec2, direction: Vec2, bounds: Bounds): Vec2 | null {
