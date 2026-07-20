@@ -85,7 +85,7 @@ src/
     framing.ts             # pure near-orthographic framing math (tested)
     camera.ts              # fixed-angle near-ortho camera + auto-frame to bounds
     palette.ts             # elevation gradient (heightColor) + scene colors (M13)
-    geometryData.ts        # plain GeometryData type (+ per-vertex colors, M13) + Babylon upload
+    geometryData.ts        # plain GeometryData type + Babylon upload
     meshers/
       terrainMesher.ts     # terrain samples → raised relief grid (M9)
       groundMesher.ts      # land-cover cells → zoned ground (M15)
@@ -148,7 +148,7 @@ Babylon into the module graph.
 
 Each milestone is a shippable vertical slice. The village "clicks" visually at **M3**.
 
-> **Status:** Milestones marked `[x]` are shipped (**M0–M11**). **M0–M8** built the settlement
+> **Status:** Milestones marked `[x]` are shipped (**M0–M13**). **M0–M8** built the settlement
 > bottom-up — boundary, roads, morphology, approaches, then *structural water* (rivers, ponds,
 > lakes, coast) as the earliest layout constraint. **M9** then inverted the pipeline to be
 > *terrain-first*: a `TerrainModel` is generated before anything else, and M9–M11 established the
@@ -670,7 +670,7 @@ and cross water at deliberate points.
   `plain` terrain so they exercise the algorithm independent of relief (a coast can legitimately
   drop entrances below `approachRoadMin`); separate suites cover relief and coastline behavior.
 
-### [ ] M13 — Terrain height visualization
+### [x] M13 — Terrain height visualization
 The renderers now carry a full height field but show none of it: the SVG debug renderer paints one
 flat grass rect and never reads `model.terrain`, and the Babylon terrain is a single flat green on a
 same-green background. So a ridge, valley, and plain look identical, the sea reads as land, and the
@@ -696,21 +696,31 @@ separates it from the field of view — in both the SVG (golden-tested) and Baby
 - **Water layering:** rivers/ponds/lakes stay drawn on top as flat surface-blue (they sit on
   above-sea land, not in the height field); the coast sea is already shown by the below-sea bands,
   so its fill is dropped (an optional thin shoreline stroke aside).
-- **Babylon per-vertex color:** add `colors?: Float32Array` (RGBA, 4/vertex) to `GeometryData`;
-  `terrainMesher` computes a per-vertex color from the same `heightColor` (continuous → smooth
-  gouraud gradient); `Renderer` passes `colors` to `createMeshFromData` (lite's optional trailing
-  arg; no material flag needed), sets `clearColor` to the non-map background, and frames the map. 2D
-  bands and 3D vertex colors agree because they share one ramp.
+- **Babylon elevation bands:** lite's `StandardMaterial` has no per-vertex color or usable
+  vertex-texture path (both attempts rendered grey/invisible), so the 3D terrain is a stack of
+  **flat-colored meshes**, one per elevation band (`terrainBandMeshes`): each grid cell joins the
+  band of its average height, so the union is the full raised terrain with no gaps, and each band's
+  flat `diffuseColor` comes from the shared `heightColor` ramp. The `Renderer` also sets `clearColor`
+  to the non-map background, frames the map (`mapFrameGeometry`), and drops the flat coast overlay so
+  the sea reads through the terrain's depth bands. 2D and 3D share the one ramp.
 
 **Deliverable:** a topographic-looking map — blue depths through green lowland to pale peaks, a clear
 coastline, a framed map, and a distinct background — that makes terrain height and the remaining
 milestones' output far easier to eyeball.
 
 **Delivery sequence:**
-- **M13a — palette + SVG bands & framing.** The verifiable, reviewable slice: `palette.ts`, the
-  terrain-band layer, dark background, map frame, wider padding. Regenerate and review the goldens.
-- **M13b — Babylon vertex colors & frame.** `GeometryData.colors`, `terrainMesher` colors, `Renderer`
-  upload + `clearColor` + map frame.
+- **[x] M13a — palette + SVG bands & framing.** `render/palette.ts` (`heightColor`, `elevationBands`,
+  scene + de-inlined feature colors); the SVG terrain-band layer (painter's algorithm over
+  `isoContours`, clipped to the map rect), dark background, map-frame rect, and wider padding. The
+  coast fill is dropped in favor of the depth bands; rivers/ponds/lakes still draw on top. Goldens
+  regenerated (stayed ~compact — one `<path>` per band).
+- **[x] M13b — Babylon elevation-band meshes & frame.** lite's `StandardMaterial` has no per-vertex
+  color path (a flat white diffuse reads as grey; a diffuse-texture LUT rendered invisible), so the
+  terrain is a stack of flat-colored meshes, one per elevation band (`terrainBandMeshes`, cells
+  grouped by average height — no gaps). `Renderer` sets `clearColor` to the background, adds a
+  `mapFrameGeometry` border, and drops the flat coast overlay so the sea shows its depth bands.
+  (Babylon is WebGPU-only; mesher tests cover geometry and `npm run render:validate`
+  captures local real-browser evidence for the `wheeler` repro seed.)
 
 **Test plan:**
 - **Palette unit:** `heightColor` is monotonic within each ramp, splits correctly at sea level,

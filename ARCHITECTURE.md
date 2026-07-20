@@ -1,6 +1,6 @@
 # Architecture
 
-This document explains how the village generator currently works through M12.
+This document explains how the village generator currently works through M13.
 It starts with the problem each phase solves, then names the techniques used in
 the code. Read `PLAN.md` for the roadmap; use this document to understand the
 implemented system and the rules that shape its output.
@@ -483,11 +483,12 @@ paints decoration on top:
   from the height field (M12c, M12d); and approaches keep to traversable corridors,
   never into the sea, up a cliff, or across the open channel (M12c, M12d). What is
   left sits in later milestones: steepest-descent rivers and traced standing lakes.
-- **M13 terrain height visualization:** color the whole scene by elevation (a
-  hypsometric gradient reusing the marching-squares contour code for SVG bands and
-  per-vertex mesh colors in Babylon), frame the map, and give the non-map field of
-  view a distinct background — so terrain height is finally legible. A pure
-  `render/palette.ts` shared by both renderers is the single source of the ramp.
+- **M13 terrain height visualization (done):** the whole scene is colored by
+  elevation — a hypsometric gradient reusing the marching-squares contour code for
+  SVG bands (painter's algorithm) and flat-colored elevation-band meshes in Babylon — with a
+  framed map and a distinct dark background, so terrain height and the coastline are
+  legible. A pure `render/palette.ts` shared by both renderers is the single source
+  of the `heightColor` ramp.
 - **M14 terrain-constrained parcels, buildings & siting refinement:** exclude
   water, floodplain, steep, and inaccessible land from lots and houses; weight
   density by buildability; and derive the settlement envelope and morphology from

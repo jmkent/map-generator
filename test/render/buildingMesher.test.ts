@@ -36,4 +36,11 @@ describe("buildingInstances", () => {
             expect(t.position[1] - t.scale[1] / 2).toBeCloseTo(0, 10);
         }
     });
+
+    it("supports seating boxes on an elevated terrain surface", () => {
+        const baseY = 0.8;
+        for (const t of buildingInstances(model.buildings, baseY)) {
+            expect(t.position[1] - t.scale[1] / 2).toBeCloseTo(baseY, 10);
+        }
+    });
 });

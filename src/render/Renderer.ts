@@ -26,12 +26,23 @@ import { boundaryOutlineGeometry } from "./meshers/boundaryOutlineMesher";
 import { roadGeometry } from "./meshers/roadMesher";
 import { buildingInstances } from "./meshers/buildingMesher";
 import { waterGeometry } from "./meshers/waterMesher";
-import { terrainGeometry } from "./meshers/terrainMesher";
+import { TERRAIN_BASE_Y, terrainBandMeshes, mapFrameGeometry } from "./meshers/terrainMesher";
+import { BACKGROUND, MAP_FRAME, hexToRgb } from "./palette";
+import type { RenderDiagnostics } from "../app/renderDiagnostics";
+
+const hexColor = (h: string) => ({ ...hexToRgb(h), a: 1.0 });
+const hexRgb = (h: string): [number, number, number] => { const c = hexToRgb(h); return [c.r, c.g, c.b]; };
+const FRAME_Y = 0.94;
+const CIVIC_Y = 0.95;
+const OUTLINE_Y = 0.96;
+const WATER_Y = 0.97;
+const ROAD_Y = 1.0;
 
 export interface Renderer {
     engine: EngineContext;
     scene: SceneContext;
     camera: ArcRotateCamera;
+    diagnostics: RenderDiagnostics;
     dispose(): void;
 }
 
@@ -45,25 +56,43 @@ function canvasAspect(canvas: HTMLCanvasElement): number {
 export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel): Promise<Renderer> {
     const engine = await createEngine(canvas);
     const scene = createSceneContext(engine);
-    // Grass fills the scene, so any sliver beyond the terrain reads as field too.
-    scene.clearColor = { r: 0.153, g: 0.435, b: 0.169, a: 1.0 };
+    // The non-map field of view is a dark slate so the framed, colored map stands
+    // out — matching the SVG renderer's background.
+    scene.clearColor = hexColor(BACKGROUND);
 
     const bounds = model.mapBounds;
 
-    // Terrain is the grass surface: one continuous green across the whole extent,
-    // matching the SVG renderer. Relief comes from the raised mesh, not the color.
-    const terrainGeo = terrainGeometry(model.terrain);
-    const terrainMesh = createMeshFromData(engine, "terrain", terrainGeo.positions, terrainGeo.normals, terrainGeo.indices);
-    const terrainMat = createStandardMaterial();
-    terrainMat.diffuseColor = [0.153, 0.435, 0.169];
-    terrainMat.specularColor = [0.02, 0.02, 0.02];
-    terrainMesh.material = terrainMat;
-    terrainMesh.pickable = false;
-    addToScene(scene, terrainMesh);
+    // Terrain surface, colored by elevation: one flat-colored mesh per elevation
+    // band (lite's StandardMaterial has no per-vertex color path). Relief comes from
+    // the raised geometry; the band colors give the topographic gradient.
+    const terrainBands = terrainBandMeshes(model.terrain);
+    for (const [index, { color, geometry }] of terrainBands.entries()) {
+        const bandMesh = createMeshFromData(engine, `terrain-band-${index}`, geometry.positions, geometry.normals, geometry.indices);
+        const bandMat = createStandardMaterial();
+        bandMat.diffuseColor = hexRgb(color);
+        bandMat.emissiveColor = hexRgb(color);
+        bandMat.specularColor = [0.02, 0.02, 0.02];
+        bandMat.disableLighting = true;
+        bandMesh.material = bandMat;
+        bandMesh.pickable = false;
+        addToScene(scene, bandMesh);
+    }
+
+    // A solid frame around the map extent, in the margin just outside the terrain.
+    const frameGeo = mapFrameGeometry(bounds, Math.max((bounds.maxX - bounds.minX) * 0.015, 4), FRAME_Y);
+    const frameMesh = createMeshFromData(engine, "map-frame", frameGeo.positions, frameGeo.normals, frameGeo.indices);
+    const frameMat = createStandardMaterial();
+    frameMat.diffuseColor = hexRgb(MAP_FRAME);
+    frameMat.emissiveColor = hexRgb(MAP_FRAME);
+    frameMat.specularColor = [0.02, 0.02, 0.02];
+    frameMat.disableLighting = true;
+    frameMesh.material = frameMat;
+    frameMesh.pickable = false;
+    addToScene(scene, frameMesh);
 
     // Village extent as a dashed outline over the grass, not a filled patch, so
     // the boundary reads without hiding what sits inside it.
-    const outlineGeo = boundaryOutlineGeometry(model.boundary, 0.1);
+    const outlineGeo = boundaryOutlineGeometry(model.boundary, OUTLINE_Y);
     if (outlineGeo.indices.length > 0) {
         const outlineMesh = createMeshFromData(engine, "boundary-outline", outlineGeo.positions, outlineGeo.normals, outlineGeo.indices);
         const outlineMat = createStandardMaterial();
@@ -78,7 +107,7 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
     // Civic greens are reserved land: render them above the general ground and
     // below roads so their placement is legible in the interactive view.
     for (const [index, space] of model.civicSpaces.entries()) {
-        const civicGeo = boundaryGeometry(space.polygon, 0.1);
+        const civicGeo = boundaryGeometry(space.polygon, CIVIC_Y);
         const civicMesh = createMeshFromData(engine, `civic-${index}`, civicGeo.positions, civicGeo.normals, civicGeo.indices);
         const civicMat = createStandardMaterial();
         civicMat.diffuseColor = [0.3, 0.58, 0.32];
@@ -88,9 +117,11 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
         addToScene(scene, civicMesh);
     }
 
-    // Keep water clearly above the terrain depth plane, while leaving roads on
-    // top so bridge crossings retain their visual hierarchy.
-    const waterGeo = waterGeometry(model.water, 0.12);
+    // Rivers/ponds/lakes are flat surface water above the relief; the coast (the
+    // sea) is left to the terrain gradient, which already shows it by depth — a flat
+    // overlay would hide that. Roads stay on top so bridge crossings read.
+    const overlayWater = model.water.filter((body) => body.kind !== "coast");
+    const waterGeo = waterGeometry(overlayWater, WATER_Y);
     if (waterGeo.indices.length > 0) {
         const waterMesh = createMeshFromData(engine, "water", waterGeo.positions, waterGeo.normals, waterGeo.indices);
         const waterMat = createStandardMaterial();
@@ -107,7 +138,7 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
     }
 
     // Roads as flat ribbons, above the boundary patch.
-    const roadGeo = roadGeometry(model.roads, 0.14);
+    const roadGeo = roadGeometry(model.roads, ROAD_Y);
     if (roadGeo.indices.length > 0) {
         const roadMesh = createMeshFromData(engine, "roads", roadGeo.positions, roadGeo.normals, roadGeo.indices);
         const roadMat = createStandardMaterial();
@@ -119,7 +150,7 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
     }
 
     // Houses as thin instances of a unit box.
-    const instances = buildingInstances(model.buildings);
+    const instances = buildingInstances(model.buildings, TERRAIN_BASE_Y);
     if (instances.length > 0) {
         const box = createBox(engine, 1);
         const houseMat = createStandardMaterial();
@@ -153,6 +184,19 @@ export async function createRenderer(canvas: HTMLCanvasElement, model: MapModel)
         engine,
         scene,
         camera,
+        diagnostics: {
+            terrain: {
+                bandCount: terrainBands.length,
+                colors: terrainBands.map(({ color }) => color),
+                cellCount: (model.terrain.resolution - 1) ** 2,
+                indexCount: terrainBands.reduce((count, { geometry }) => count + geometry.indices.length, 0),
+            },
+            water: {
+                generatedKinds: model.water.map((body) => body.kind),
+                overlayKinds: overlayWater.map((body) => body.kind),
+                indexCount: waterGeo.indices.length,
+            },
+        },
         dispose() {
             window.removeEventListener("resize", onResize);
         },

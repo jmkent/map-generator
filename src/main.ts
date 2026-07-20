@@ -8,6 +8,13 @@ import { geometryDiagnostics } from "./app/geometryDiagnostics";
 import { createHud } from "./ui/hud";
 import { createRenderer } from "./render/Renderer";
 import { generateVillage } from "./gen/pipeline";
+import type { BrowserRenderDiagnostics } from "./app/renderDiagnostics";
+
+declare global {
+    interface Window {
+        __mapGeneratorRenderDiagnostics?: BrowserRenderDiagnostics;
+    }
+}
 
 const seed = parseSeed(window.location.search) ?? randomSeed();
 
@@ -25,4 +32,14 @@ const model = generateVillage(seed);
 hud.setDiagnostics(geometryDiagnostics(model));
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
-await createRenderer(canvas, model);
+try {
+    const renderer = await createRenderer(canvas, model);
+    window.__mapGeneratorRenderDiagnostics = { status: "ready", seed, renderer: renderer.diagnostics };
+} catch (error) {
+    window.__mapGeneratorRenderDiagnostics = {
+        status: "error",
+        seed,
+        error: error instanceof Error ? error.message : String(error),
+    };
+    throw error;
+}

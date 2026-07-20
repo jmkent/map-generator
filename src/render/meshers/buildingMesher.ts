@@ -9,9 +9,9 @@
 import type { Building } from "../../gen/types";
 import type { InstanceTransform } from "../geometryData";
 
-export function buildingInstances(buildings: Building[]): InstanceTransform[] {
+export function buildingInstances(buildings: Building[], baseY = 0): InstanceTransform[] {
     return buildings.map((b) => ({
-        position: [b.center.x, b.height / 2, b.center.y],
+        position: [b.center.x, baseY + b.height / 2, b.center.y],
         rotationY: -b.angle,
         scale: [b.width, b.height, b.depth],
     }));

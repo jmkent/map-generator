@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { generateVillage } from "../../src/gen/pipeline";
-import { terrainGeometry } from "../../src/render/meshers/terrainMesher";
+import { terrainBandMeshes } from "../../src/render/meshers/terrainMesher";
 
 const PROFILES = ["plain", "river-valley", "lakeshore", "coast", "cove", "peninsula", "ridge", "hillside", "island"] as const;
 
@@ -19,12 +19,12 @@ describe("terrain-first generation", () => {
         });
     }
 
-    it("emits a finite raised mesh for the terrain field", () => {
+    it("emits finite raised band meshes covering the terrain field", () => {
         const terrain = generateVillage("terrain-mesh", { terrainProfile: "ridge" }).terrain;
-        const geometry = terrainGeometry(terrain);
-        expect(geometry.positions).toHaveLength(terrain.resolution ** 2 * 3);
-        expect(geometry.indices).toHaveLength((terrain.resolution - 1) ** 2 * 6);
-        expect([...geometry.positions].every(Number.isFinite)).toBe(true);
+        const meshes = terrainBandMeshes(terrain);
+        const totalTris = meshes.reduce((sum, m) => sum + m.geometry.indices.length, 0);
+        expect(totalTris).toBe((terrain.resolution - 1) ** 2 * 6);
+        expect(meshes.every((m) => [...m.geometry.positions].every(Number.isFinite))).toBe(true);
     });
 
     it("uses terrain type to select hydrology and settlement orientation", () => {

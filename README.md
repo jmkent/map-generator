@@ -36,7 +36,7 @@ seed + params ─▶ gen/ (pure) ─▶ MapModel ─┬─▶ render/ (Babylon) 
 
 ## Status
 
-Implemented through **M12**. The generator is now **terrain-first**: it builds a
+Implemented through **M13**. The generator is now **terrain-first**: it builds a
 local landscape, then settles a village onto it.
 
 - **Deterministic core (M0–M1):** seeded RNG with named streams, a geometry
@@ -58,11 +58,14 @@ local landscape, then settles a village onto it.
   coves, peninsulas, and islands (a ring sea drawn as a polygon with a hole) — and
   rivers **vary in width**, widening downstream; approaches keep to dry, gentle
   corridors.
+- **Terrain height visualization (M13):** the whole scene is colored by elevation —
+  a **topographic gradient** (blue depths through green lowland to pale peaks,
+  reusing the contour code for SVG bands and flat-colored elevation-band meshes in 3D) — with a
+  framed map and a distinct background, so relief and the coastline are legible.
 
-Next up (see [PLAN.md](./PLAN.md)): coloring the map by terrain height — a
-topographic gradient, a framed map, and a distinct background (M13); handing parcel
-and building geometry over to the terrain (M14); then *decorative land cover* —
-fields and woodlands (M15) — and interactivity and inspection overlays (M16).
+Next up (see [PLAN.md](./PLAN.md)): handing parcel and building geometry over to the
+terrain (M14); then *decorative land cover* — fields and woodlands (M15) — and
+interactivity and inspection overlays (M16).
 
 ## Running
 
@@ -87,6 +90,24 @@ npm run preview    # serve the production build
 npm test           # Vitest in watch mode
 npm run test:run   # single run (CI-style)
 ```
+
+### Browser render diagnostics
+
+The unit suite deliberately does not require a GPU. To capture evidence from a
+real WebGPU browser, use the local diagnostic instead:
+
+```bash
+npm run render:validate              # renders the `wheeler` repro seed
+npm run render:validate -- --seed riverford
+```
+
+This uses `puppeteer-core`, so it does not download Chromium. It discovers macOS
+Google Chrome automatically; elsewhere pass `--browser /path/to/chrome` or set
+`PUPPETEER_EXECUTABLE_PATH`. The command writes a canvas screenshot and JSON
+report to `artifacts/render-validation/` (ignored by Git), verifies WebGPU and
+renderer readiness, and checks both submitted geometry and terrain-colored canvas
+coverage. `wheeler` intentionally renders its coast through the below-sea terrain
+bands; only its river is a flat water overlay.
 
 The suite is **headless** — it exercises the pure generation and framing code
 without a GPU:
